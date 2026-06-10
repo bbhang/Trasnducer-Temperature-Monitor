@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.0
+# Version : 1.3.1
 # Modified: 2026-06-09
-# Notes   : v1.3.0 - Re-added a simulated-test demo: the instrument list now
+# Notes   : v1.3.1 - "Save report" button: enabled after a run ends; amend
+#           the UI fields and save again (verdict re-evaluated, files keep
+#           the run's start timestamp). Reports also written as PDF:
+#           page 1 report text, page 2 temperature plot (matplotlib
+#           PdfPages, no new dependency).
+#           v1.3.0 - Re-added a simulated-test demo: the instrument list now
 #           offers "Simulated DMM6500 (demo, no hardware)". The demo heats
 #           the selected probe channel along an exponential curve
 #           (37 C -> ~41.6 C, tau 300 s), keeps the ambient channel near
@@ -13,14 +18,6 @@
 #           is 'SIMULATED,DMM6500-DEMO,...' so reports are unambiguous;
 #           connection status shows orange in demo mode. temp/selftest.py
 #           now drives this class directly.
-#           v1.2.0 - Transmit-params tab reworked for console SW
-#           V1.0.0.105919: modes B/C/B+C/B+CW/B+PW/B+C+PW/B+C+CW, separate
-#           B/C Opt selectors, fixed F and pulses# per Opt, depth 3-15 cm,
-#           FOV 90/100/115/120, focus number 1-4 with per-focus position
-#           entries, frame rate/PRF auto-fill from the parameter table.
-#           v1.1.0 - Ambient-reference channel selector; "Transmit params"
-#           tab (201.11.1.3.102) with test label in filenames, CSV '#'
-#           metadata and report.
 # =============================================================================
 """ICE Transducer Temperature Monitor.
 
@@ -58,6 +55,7 @@ from tkinter import messagebox, ttk
 import matplotlib
 
 matplotlib.use("TkAgg")
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -65,7 +63,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.0"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.1"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -832,6 +830,9 @@ class App(tk.Tk):
         self.stop_btn = ttk.Button(btns, text="Stop test", command=self.stop_test,
                                    state="disabled")
         self.stop_btn.pack(side="left", padx=2)
+        self.save_btn = ttk.Button(btns, text="Save report",
+                                   command=self.save_report, state="disabled")
+        self.save_btn.pack(side="left", padx=2)
 
         self.elapsed_label = ttk.Label(frm, text="Elapsed: 00:00",
                                        font=("Segoe UI", 12, "bold"))
@@ -1062,6 +1063,7 @@ class App(tk.Tk):
         self.running = True
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
+        self.save_btn.configure(state="disabled")
         self.ambient_combo.configure(state="disabled")
         mode = TEST_MODES[self.mode_var.get()]
         self.status_label.configure(
@@ -1290,23 +1292,63 @@ class App(tk.Tk):
     # ------------------------------------------------------ finalize
 
     def _finalize_test(self):
+        self._update_plot()
+        verdict, paths = self._save_outputs()
+        self.save_btn.configure(state="normal")
+        self.status_label.configure(text=f"Test ended: {self.stop_reason}",
+                                    foreground="black")
+        messagebox.showinfo(
+            "Test finished",
+            f"Verdict: {verdict}\nReason: {self.stop_reason}\n\n"
+            f"Data:   {self.csv_path}\nReport: {paths['txt']}\n"
+            f"PDF:    {paths['pdf']}\nPlot:   {paths['png']}")
+
+    def save_report(self):
+        """Save the report again with the current UI fields (Save button)."""
+        if self.running or not self.times or self.test_start_wall is None:
+            return
+        verdict, paths = self._save_outputs()
+        self.status_label.configure(
+            text=f"Report saved ({verdict}): {os.path.basename(paths['txt'])}",
+            foreground="black")
+        messagebox.showinfo(
+            "Report saved",
+            f"Verdict: {verdict}\n\nReport: {paths['txt']}\n"
+            f"PDF:    {paths['pdf']}\nPlot:   {paths['png']}")
+
+    def _save_outputs(self):
+        """Write the plot PNG, text report and PDF report for the recorded run.
+
+        Metadata that does not affect the recorded data (operator, DUT ID,
+        transmit params, thermal offset, ambient) is re-read from the UI, so
+        the operator can amend it after the run and press "Save report" to
+        save again. Filenames keep the run's start timestamp; a changed test
+        label produces new files alongside the old ones.
+        """
+        self.tx_params = self._collect_tx_params()
+        self.test_label = build_test_label(self.tx_params)
+        try:
+            self.cfg_offset = float(self.offset_var.get())
+        except ValueError:
+            pass
+        try:
+            self.cfg_ambient = float(self.ambient_var.get())
+        except ValueError:
+            pass
+
         mode_key = self.mode_var.get()
         mode = TEST_MODES[mode_key]
         p = self.probe_ch
         value, limit, ok = evaluate_channel(
             mode_key, self.max_temp[p], self.baseline[p], self.cfg_offset)
-        result = (value, limit, ok)
         verdict = "PASS" if ok else "FAIL"
-        steady = self.detectors[p].steady
-        completed = steady or (self.times and
-                               self.times[-1] >= self.cfg_duration * 60.0 - 1)
+        completed = (self.detectors[p].steady
+                     or (self.times
+                         and self.times[-1] >= self.cfg_duration * 60.0 - 1))
         if ok and not completed:
             verdict = "PASS (incomplete test)"
         self._set_verdict(verdict, "green" if ok else "red")
-        self.status_label.configure(text=f"Test ended: {self.stop_reason}",
-                                    foreground="black")
 
-        self._update_plot()
         stamp = self.test_start_wall.strftime("%Y%m%d_%H%M%S")
         suffix = f"_{self.test_label}" if self.test_label else ""
         png_path = os.path.join(OUTPUT_DIR, f"tempplot_{stamp}{suffix}.png")
@@ -1314,15 +1356,32 @@ class App(tk.Tk):
             self.fig.savefig(png_path, dpi=150, bbox_inches="tight")
         except Exception:
             png_path = "(plot save failed)"
+        txt_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.txt")
+        pdf_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.pdf")
+        text = self._report_text(mode, (value, limit, ok), verdict,
+                                 png_path, pdf_path)
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        try:
+            self._write_pdf_report(pdf_path, text)
+        except Exception as exc:
+            pdf_path = f"(PDF save failed: {exc})"
+        return verdict, {"png": png_path, "txt": txt_path, "pdf": pdf_path}
 
-        report_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.txt")
-        self._write_report(report_path, mode, result, verdict, png_path)
-        messagebox.showinfo(
-            "Test finished",
-            f"Verdict: {verdict}\nReason: {self.stop_reason}\n\n"
-            f"Data:   {self.csv_path}\nReport: {report_path}\nPlot:   {png_path}")
+    def _write_pdf_report(self, path, report_text):
+        """Two-page PDF: page 1 the report text, page 2 the temperature plot."""
+        with PdfPages(path) as pdf:
+            page = Figure(figsize=(8.27, 11.69))      # A4 portrait
+            page.text(0.07, 0.97, report_text, family="monospace",
+                      fontsize=8, va="top")
+            pdf.savefig(page)
+            pdf.savefig(self.fig)
+            info = pdf.infodict()
+            info["Title"] = ("ICE Transducer Surface Temperature Test Report "
+                             + (self.test_label or "")).strip()
+            info["Author"] = self.operator_var.get() or "(not entered)"
 
-    def _write_report(self, path, mode, result, verdict, png_path):
+    def _report_text(self, mode, result, verdict, png_path, pdf_path):
         end_wall = datetime.now()
         elapsed = self.times[-1] if self.times else 0.0
         idn = getattr(self.dmm, "idn", "n/a")
@@ -1404,10 +1463,10 @@ class App(tk.Tk):
             "-" * 72,
             f"Data file : {self.csv_path}",
             f"Plot file : {png_path}",
+            f"PDF file  : {pdf_path}",
             "=" * 72,
         ]
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
+        return "\n".join(lines)
 
     # ------------------------------------------------------ shutdown
 

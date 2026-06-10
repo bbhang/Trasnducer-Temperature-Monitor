@@ -1,6 +1,7 @@
 # Generated test artifacts
 temp/templog_*.csv
 temp/report_*.txt
+temp/report_*.pdf
 temp/tempplot_*.png
 
 # Python

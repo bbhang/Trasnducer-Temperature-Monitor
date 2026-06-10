@@ -100,6 +100,14 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    (default 30 min) or when the **probe** channel reaches thermal steady state
    (rate < 0.12 °C/min held for 3 min, 201.11.1.3.101), whichever comes first;
    *Stop test* ends it manually (the report then notes an incomplete test).
+   The CSV, the report (TXT + PDF) and the plot PNG are saved automatically.
+7. **Save report again (optional)** — after the run the *Save report* button
+   becomes active. If information was missing or wrong during the run
+   (operator name, DUT ID, transmit params, thermal offset, …), amend the
+   fields in the GUI and click *Save report*: the verdict is re-evaluated and
+   the report/PDF/plot are written again. Filenames keep the run's start
+   timestamp; changing the transmit params changes the test label, producing
+   new files alongside the old ones. The recorded CSV data is never modified.
 
 ## 4. Output files (saved to `temp\`)
 
@@ -109,6 +117,7 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
 |---|---|
 | `templog_YYYYMMDD_HHMMSS_<label>.csv` | `#` metadata lines (program version, mode, opt, depth, FOV, focus, operator, ...) then timestamp, elapsed s, probe °C, ambient °C — every sample |
 | `report_YYYYMMDD_HHMMSS_<label>.txt` | test conditions, operating-settings block (201.11.1.3.102), baseline/min/max/drift/rise per channel, steady-state time, PASS/FAIL verdict, operator fill-in fields |
+| `report_YYYYMMDD_HHMMSS_<label>.pdf` | PDF version of the report: page 1 the report text, page 2 the temperature plot |
 | `tempplot_YYYYMMDD_HHMMSS_<label>.png` | temperature curves with limit lines |
 
 After the run, complete the report's operator fields: measurement uncertainty
@@ -171,8 +180,9 @@ Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-u
 ## 7. Verification status
 
 `temp\selftest.py` exercises the verdict formulas, the test-label builder, the
-steady-state detector and a full accelerated end-to-end run using a test-only
-instrument stub (swapped channel roles, CSV metadata, operating-settings block
-in the report, auto-stop on steady state). All checks pass as of 2026-06-09
-(V1.1.0). Real-instrument validation (USB VISA address, channel configuration)
-is to be performed on the bench.
+steady-state detector and a full accelerated end-to-end run using the
+application's own simulated instrument (swapped channel roles, CSV metadata,
+operating-settings block in the report, auto-stop on steady state, PDF report,
+re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.1).
+Real-instrument validation (USB VISA address, channel configuration) is to be
+performed on the bench.

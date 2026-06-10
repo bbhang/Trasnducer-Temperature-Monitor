@@ -6,6 +6,20 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.1 — 2026-06-09
+
+- **"Save report" button** (Run control): enabled when a run ends. The
+  operator can amend the UI fields after the test — operator name, DUT ID,
+  transmit params, thermal offset, … — and save the outputs again. The
+  verdict is re-evaluated with the amended values; filenames keep the run's
+  start timestamp, and a changed test label writes new files alongside the
+  old ones (the recorded CSV data is never modified).
+- **PDF report** (`report_YYYYMMDD_HHMMSS_<label>.pdf`): generated next to
+  the `.txt` report on every save — page 1 the full report text, page 2 the
+  temperature plot. Uses matplotlib `PdfPages`, no new dependency.
+- `temp/selftest.py`: checks for the PDF output, the Save-button state and
+  a re-save with an amended operator name.
+
 ## V1.3.0 — 2026-06-09
 
 - **Simulated-test demo re-added**: the instrument list now offers

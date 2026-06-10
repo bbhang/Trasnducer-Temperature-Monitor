@@ -1,8 +1,8 @@
 """Automated self-test for temp_monitor_gui.py (logic + end-to-end run).
 
 Drives the application's own SimulatedDmm demo instrument (x60 accelerated
-clock, V1.3.0) to exercise the full acquisition, steady-state, verdict and
-report pipeline without hardware.
+clock) to exercise the full acquisition, steady-state, verdict and report
+pipeline (TXT + PDF + re-save, V1.3.1) without hardware.
 """
 import math
 import os
@@ -167,9 +167,16 @@ if csv_ok:
           "T3_probe_C (ch3)" in csv_text and "T2_ambient_C (ch2)" in csv_text)
 
 out_dir = m.OUTPUT_DIR
-reports = sorted(f for f in os.listdir(out_dir) if f.startswith("report_"))
+reports = sorted(f for f in os.listdir(out_dir)
+                 if f.startswith("report_") and f.endswith(".txt"))
+pdfs = sorted(f for f in os.listdir(out_dir)
+              if f.startswith("report_") and f.endswith(".pdf"))
 pngs = sorted(f for f in os.listdir(out_dir) if f.startswith("tempplot_"))
 check("report written", bool(reports))
+check("report PDF written", bool(pdfs))
+if pdfs:
+    with open(os.path.join(out_dir, pdfs[-1]), "rb") as f:
+        check("PDF magic number", f.read(5) == b"%PDF-")
 check("plot PNG written", bool(pngs))
 check("report filename carries label",
       reports and "B-PEN-D15-FOV90-FN1-1cm" in reports[-1])
@@ -187,6 +194,18 @@ if reports:
     check("report has operating settings block",
           "Operating settings of the ultrasound console (201.11.1.3.102)" in rep)
     check("report lists F MHz", "4.5 MHz" in rep)
+    check("report references PDF file", "PDF file" in rep)
+
+# ---- Save report again with amended UI fields -------------------------------
+check("save button enabled after run", str(app.save_btn["state"]) == "normal")
+app.operator_var.set("selftest-amended")
+app.save_report()
+check("re-save popup shown", any(p[1] == "Report saved" for p in popups))
+if reports:
+    with open(os.path.join(out_dir, reports[-1]), encoding="utf-8") as f:
+        rep2 = f.read()
+    check("re-saved report has amended operator", "selftest-amended" in rep2)
+    check("re-saved report keeps verdict PASS", "Verdict          : PASS" in rep2)
 
 app._on_close()
 
