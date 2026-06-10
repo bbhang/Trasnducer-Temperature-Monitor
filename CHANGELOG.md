@@ -6,6 +6,20 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.10 — 2026-06-10
+
+- **Frame rate / PRF auto-fill requires all measured table conditions**:
+  in addition to the V1.3.9 gating, the auto-fill now also requires
+  *Line density* = UH and *Console SW version* = V1.0.0.105919 — the
+  conditions every row of the parameter table was measured under.
+  Editing either field to anything else blanks *Frame rate* / *PRF* for
+  manual entry, and both fields now re-trigger the auto-fill evaluation.
+- **Depth compared numerically**: a manually typed depth of `15.0` now
+  counts as the tabulated 15 cm instead of failing the exact string
+  match and blanking the auto-fill.
+- `temp/selftest.py`: checks for depth `15.0`, non-UH line density and
+  non-table console SW version.
+
 ## V1.3.9 — 2026-06-10
 
 - **Frame rate / PRF auto-fill only under measured table conditions**: the

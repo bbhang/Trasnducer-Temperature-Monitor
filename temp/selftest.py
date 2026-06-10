@@ -82,6 +82,16 @@ check("auto B/GEN/90 2-focus: FR/PRF empty (only PEN measured)",
 a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "10")
 check("auto depth != 15: FR/PRF empty",
       a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "15.0")
+check("auto depth '15.0' counts as 15: FR/PRF filled",
+      a["frame_rate"] == "35.14" and a["prf"] == "4182")
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "15", line_density="H")
+check("auto line density != UH: FR/PRF empty (not measured)",
+      a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "15",
+                     console_sw="V1.0.0.105413")
+check("auto console SW != table SW: FR/PRF empty (not measured)",
+      a["frame_rate"] == "" and a["prf"] == "")
 
 # ---- SteadyStateDetector ---------------------------------------------------
 d = m.SteadyStateDetector()

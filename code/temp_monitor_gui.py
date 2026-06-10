@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.9
+# Version : 1.3.10
 # Modified: 2026-06-10
-# Notes   : v1.3.9 - Frame rate / PRF auto-fill only under measured table
-#           conditions: B+C now also requires B Opt = GEN and C ROI =
-#           0-1 cm (the only combinations measured in the parameter
-#           table); any other combination leaves Frame rate and PRF
-#           empty for manual entry.
+# Notes   : v1.3.10 - Frame rate / PRF auto-fill additionally requires
+#           line density UH and console SW V1.0.0.105919 (the conditions
+#           the parameter table was measured under); editing either field
+#           re-evaluates and blanks the values. Depth is compared
+#           numerically so "15.0" still counts as the tabulated 15 cm.
 #           (Older notes: see CHANGELOG.md; Notes holds only the latest.)
 # =============================================================================
 """ICE Transducer Temperature Monitor.
@@ -54,7 +54,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.9"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.10"            # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -168,7 +168,8 @@ def mode_tokens(mode):
     return [t for t in mode.split("+") if t]
 
 
-def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth, c_roi=""):
+def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth, c_roi="",
+                   line_density="UH", console_sw=CONSOLE_SW_DEFAULT):
     """Derive the fixed/auto transmit parameters for a mode selection.
 
     Returns {'f_mhz', 'pulses', 'frame_rate', 'prf'} as strings; empty when
@@ -177,8 +178,9 @@ def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth, c_roi=""):
         table's combined-mode rows).
       - Pulses#: B non-harmonic = 2, harmonic (H*) = 1; modes with C = 4.
       - Frame rate / PRF only auto-fill for combinations measured in the
-        table (15 cm depth); any combination outside the measured
-        conditions leaves them empty for manual entry.
+        table (console SW V1.0.0.105919, line density UH, 15 cm depth);
+        any combination outside the measured conditions leaves them empty
+        for manual entry.
     """
     toks = mode_tokens(mode)
     out = {"f_mhz": "", "pulses": "", "frame_rate": "", "prf": ""}
@@ -188,8 +190,13 @@ def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth, c_roi=""):
     elif "B" in toks:
         out["f_mhz"] = B_FREQ_MHZ.get(b_opt, "")
         out["pulses"] = "1" if b_opt.startswith("H") else "2"
+    try:
+        depth_15 = float(depth) == 15.0
+    except ValueError:
+        depth_15 = False
     fr_prf = None
-    if depth == "15":
+    if (depth_15 and line_density.strip() == "UH"
+            and console_sw.strip() == CONSOLE_SW_DEFAULT):
         if mode == "B":
             if focus_num == "1":
                 fr_prf = B_FRAME_PRF.get((b_opt, fov))
@@ -789,7 +796,7 @@ class App(tk.Tk):
         for var in self.tx_vars.values():
             var.trace_add("write", lambda *_: self._update_label_preview())
         for key in ("mode", "b_opt", "c_opt", "c_roi", "fov", "focus_num",
-                    "depth"):
+                    "depth", "line_density", "console_sw"):
             self.tx_vars[key].trace_add("write",
                                         lambda *_: self._update_tx_auto())
         self._on_console_mode_change()
@@ -828,7 +835,9 @@ class App(tk.Tk):
             self.tx_vars["c_opt"].get(), self.tx_vars["fov"].get(),
             self.tx_vars["focus_num"].get(),
             self.tx_vars["depth"].get().strip(),
-            self.tx_vars["c_roi"].get())
+            self.tx_vars["c_roi"].get(),
+            self.tx_vars["line_density"].get(),
+            self.tx_vars["console_sw"].get())
         for key in ("f_mhz", "pulses", "frame_rate", "prf"):
             if self.tx_vars[key].get() != auto[key]:
                 self.tx_vars[key].set(auto[key])
