@@ -1,5 +1,14 @@
 """ICE Transducer Temperature Monitor.
 
+Version: 1.0.0
+Latest update notes (V1.0.0, 2026-06-09):
+  - Initial release: DMM6500 USB auto-detection (*IDN? scan, model check,
+    TERMINALS switch check), T2 probe on channel 2 evaluated against
+    IEC 60601-2-37:2024 limits, T3 ambient on channel 3 recorded as test
+    condition (23 +/- 3 C, drift), drift tracking on both channels,
+    steady-state auto-stop, demo mode, CSV/report/PNG output.
+(full history in CHANGELOG.md)
+
 Acquires temperatures from two thermocouple probes (T2, T3) connected to
 channels 2 and 3 of a Keithley DMM6500 (rear-panel scanner card, USB/VISA)
 and evaluates them against IEC 60601-2-37:2024 clause 201.11 limits for an
@@ -38,6 +47,8 @@ from matplotlib.figure import Figure
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
+APP_VERSION = "1.0.0"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels for T2, T3
 PROBE_CH = 2                      # T2: transducer surface (device under test)
@@ -327,7 +338,8 @@ class App(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("ICE Transducer Temperature Monitor - DMM6500 - IEC 60601-2-37:2024")
+        self.title(f"ICE Transducer Temperature Monitor V{APP_VERSION} "
+                   "- DMM6500 - IEC 60601-2-37:2024")
         self.geometry("1280x800")
         self.minsize(1100, 700)
 
@@ -928,6 +940,7 @@ class App(tk.Tk):
             "=" * 72,
             "ICE TRANSDUCER SURFACE TEMPERATURE TEST REPORT",
             "Standard: IEC 60601-2-37:2024, clause 201.11",
+            f"Program: temp_monitor_gui.py V{APP_VERSION}",
             "=" * 72,
             f"Test mode        : {mode['name']}",
             f"Clause           : {mode['clause']}",
