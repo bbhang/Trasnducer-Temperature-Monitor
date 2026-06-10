@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.0.1
+# Version : 1.1.0
 # Modified: 2026-06-09
-# Notes   : v1.0.1 - Rework the file header into the standard comment-block
-#           format (Project/Version/Modified/Notes); the Notes field now
-#           carries the latest update description and is rewritten on every
-#           version bump (full history in CHANGELOG.md). No functional
-#           changes to acquisition or pass/fail logic.
+# Notes   : v1.1.0 - (1) Removed the SimulatedDmm demo mode from the
+#           application (an equivalent stub lives in temp/selftest.py for
+#           automated testing only). (2) Added an ambient-reference channel
+#           selector: the operator chooses whether channel 2 or channel 3 is
+#           the ambient TC; the other channel becomes the probe (DUT) channel
+#           evaluated against the IEC limits. All labels, plot colors, CSV
+#           columns and report sections follow the selection. (3) Added a
+#           "Transmit params" tab recording the ultrasound console operating
+#           settings required by 201.11.1.3.102: console SW version, mode
+#           (B/C/C+B/PW/CW), Opt (PEN/GEN/GRES/RES/HPEN/HGEN/HGRES1/HGRES2/
+#           HRES for B; PEN/GEN and combos for C), image depth, FOV, focus
+#           number, focus area, line density, F, pulses#, frame rate, PRF
+#           (presets from doc/Acoustic Safety Test Parameters.xlsx). The
+#           settings build a test label (e.g. B-PEN-D15-FOV90-FN1-1cm) that is
+#           appended to the CSV/report/PNG filenames, written as '#' metadata
+#           lines at the top of the CSV, and listed in the report's
+#           "Operating settings" block.
 # =============================================================================
 """ICE Transducer Temperature Monitor.
 
 Acquires temperatures from two thermocouple probes (T2, T3) connected to
 channels 2 and 3 of a Keithley DMM6500 (rear-panel scanner card, USB/VISA)
 and evaluates them against IEC 60601-2-37:2024 clause 201.11 limits for an
-INVASIVE TRANSDUCER ASSEMBLY (intracardiac echo catheter).
+INVASIVE TRANSDUCER ASSEMBLY (intracardiac echo catheter). One channel is the
+probe on the transducer surface (device under test), the other is an ambient
+reference; the operator selects which is which in the GUI.
 
 Test modes (see doc/IEC_60601-2-37_Requirements_Summary.md):
   - Simulated use a) peak temperature:  surface temperature <= 43 C
@@ -25,14 +39,12 @@ Thermal steady state: rate of change < 0.12 C/min for 3 consecutive minutes.
 Test duration: 30 min or until thermal steady state (201.11.1.3.103).
 
 Run:  python temp_monitor_gui.py
-Demo mode (no instrument needed) is available from the GUI.
 """
 
 import csv
-import math
 import os
 import queue
-import random
+import re
 import threading
 import time
 import tkinter as tk
@@ -50,12 +62,10 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.0.1"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.1.0"             # bumped on every update (see CHANGELOG.md)
 
-CHANNELS = (2, 3)                 # DMM6500 scanner-card channels for T2, T3
-PROBE_CH = 2                      # T2: transducer surface (device under test)
-AMBIENT_CH = 3                    # T3: ambient reference (test condition record)
-CHANNEL_LABELS = {PROBE_CH: "T2 probe", AMBIENT_CH: "T3 ambient"}
+CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
+DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
 AMBIENT_MIN_C = 20.0              # 201.11.1.3.101: ambient 23 +/- 3 C
 AMBIENT_MAX_C = 26.0
 AMBIENT_STABLE_BAND_C = 0.5       # still-air test: ambient stable within 0.5 C
@@ -95,6 +105,25 @@ TEST_MODES = {
     },
 }
 
+# Ultrasound console operating settings (201.11.1.3.102). Presets taken from
+# doc/Acoustic Safety Test Parameters.xlsx; every combobox stays editable so
+# values outside the presets can be typed.
+CONSOLE_MODES = ("B", "C", "C+B", "PW", "CW")
+CONSOLE_OPTS = {
+    "B": ("PEN", "GEN", "GRES", "RES", "HPEN", "HGEN", "HGRES1", "HGRES2",
+          "HRES"),
+    "C": ("PEN", "GEN", "PEN(C)+GEN(B)", "GEN(C)+GEN(B)", "PEN(C)+PEN(B)",
+          "GEN(C)+PEN(B)"),
+    "C+B": ("PEN(C)+GEN(B)", "GEN(C)+GEN(B)", "PEN(C)+HRES(B)",
+            "GEN(C)+HRES(B)"),
+    "PW": ("GEN",),
+    "CW": ("GEN",),
+}
+DEPTH_PRESETS_CM = ("1.5", "10", "15")
+FOV_PRESETS_DEG = ("20", "90", "100", "115", "120")
+FOCUS_NUMBER_PRESETS = ("1", "2", "3", "4", "X")
+FOCUS_AREA_PRESETS = ("1cm", "1,2cm", "1,2,3cm", "0-1cm", "0-15cm")
+
 
 # ---------------------------------------------------------------------------
 # Pass/fail evaluation (pure logic, unit-testable)
@@ -113,6 +142,29 @@ def evaluate_channel(mode_key, max_temp, baseline, thermal_offset):
     else:
         value = (max_temp - baseline) + thermal_offset
     return value, mode["limit"], value <= mode["limit"]
+
+
+def build_test_label(params):
+    """Build a compact, filename-safe label from the operating settings.
+
+    Example: {'mode': 'B', 'opt': 'PEN', 'depth': '15', 'fov': '90',
+              'focus_num': '1', 'focus_area': '1cm'} -> 'B-PEN-D15-FOV90-FN1-1cm'
+    """
+    parts = []
+    if params.get("mode"):
+        parts.append(params["mode"])
+    if params.get("opt"):
+        parts.append(params["opt"])
+    if params.get("depth"):
+        parts.append(f"D{params['depth']}")
+    if params.get("fov"):
+        parts.append(f"FOV{params['fov']}")
+    if params.get("focus_num"):
+        parts.append(f"FN{params['focus_num']}")
+    if params.get("focus_area"):
+        parts.append(params["focus_area"])
+    label = "-".join(parts)
+    return re.sub(r"[^A-Za-z0-9.+-]+", "-", label).strip("-")
 
 
 class SteadyStateDetector:
@@ -174,14 +226,14 @@ class SteadyStateDetector:
 class Dmm6500:
     """Keithley DMM6500 with scanner card, thermocouples on channels 2 and 3."""
 
+    MODEL_KEYWORD = "DMM6500"
+
     def __init__(self, resource_name, tc_type=DEFAULT_TC_TYPE, channels=CHANNELS):
         self.resource_name = resource_name
         self.tc_type = tc_type
         self.channels = channels
         self.inst = None
         self.idn = ""
-
-    MODEL_KEYWORD = "DMM6500"
 
     def connect(self):
         import pyvisa
@@ -294,43 +346,6 @@ class Dmm6500:
         return out
 
 
-class SimulatedDmm:
-    """Demo instrument producing exponential self-heating curves.
-
-    The time_scale factor accelerates simulated time so a 30 min test can be
-    previewed in a couple of minutes.
-    """
-
-    IDN = "DEMO,SimulatedDMM6500,0,1.0"
-
-    def __init__(self, tc_type=DEFAULT_TC_TYPE, channels=CHANNELS, time_scale=1.0):
-        self.tc_type = tc_type
-        self.channels = channels
-        self.time_scale = time_scale
-        self.t0 = None
-        # baseline C, total rise C, time constant s  (per channel)
-        self.params = {
-            PROBE_CH: (37.0, 4.6, 300.0),    # heating transducer surface
-            AMBIENT_CH: (23.2, 0.15, 600.0),  # nearly-stable room ambient
-        }
-
-    def connect(self):
-        self.t0 = time.monotonic()
-        return self.IDN
-
-    def read_temps(self):
-        elapsed = (time.monotonic() - self.t0) * self.time_scale
-        out = {}
-        for c in self.channels:
-            base, rise, tau = self.params.get(c, (37.0, 5.0, 300.0))
-            temp = base + rise * (1.0 - math.exp(-elapsed / tau))
-            out[c] = temp + random.gauss(0.0, 0.01)
-        return out
-
-    def close(self):
-        self.t0 = None
-
-
 # ---------------------------------------------------------------------------
 # GUI application
 # ---------------------------------------------------------------------------
@@ -342,8 +357,8 @@ class App(tk.Tk):
         super().__init__()
         self.title(f"ICE Transducer Temperature Monitor V{APP_VERSION} "
                    "- DMM6500 - IEC 60601-2-37:2024")
-        self.geometry("1280x800")
-        self.minsize(1100, 700)
+        self.geometry("1280x840")
+        self.minsize(1100, 720)
 
         self.dmm = None
         self.acq_thread = None
@@ -351,10 +366,13 @@ class App(tk.Tk):
         self.data_queue = queue.Queue()
 
         self.running = False
+        self.probe_ch = 2
+        self.ambient_ch = DEFAULT_AMBIENT_CH
         self.test_start_wall = None
         self.test_start_mono = None
         self.baseline = {}
         self.max_temp = {}
+        self.min_temp = {}
         self.current = {}
         self.detectors = {}
         self.times = []                       # elapsed seconds
@@ -365,10 +383,38 @@ class App(tk.Tk):
         self.stop_reason = ""
         self.fail_latched = False
         self.last_plot_update = 0.0
+        self.test_label = ""
 
         self._build_ui()
+        self._apply_channel_roles()
         self.after(self.POLL_MS, self._poll_queue)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ------------------------------------------------------ channel roles
+
+    def _ch_role(self, c):
+        return "ambient" if c == self.ambient_ch else "probe"
+
+    def _ch_label(self, c):
+        return f"T{c} {self._ch_role(c)}"
+
+    def _on_ambient_change(self, _event=None):
+        if self.running:
+            return
+        sel = self.ambient_combo.get()
+        self.ambient_ch = 2 if "2" in sel else 3
+        self.probe_ch = 3 if self.ambient_ch == 2 else 2
+        self._apply_channel_roles()
+
+    def _apply_channel_roles(self):
+        """Refresh labels and plot colors after the ambient selection changes."""
+        colors = {self.probe_ch: "tab:red", self.ambient_ch: "tab:green"}
+        for c in CHANNELS:
+            self.readout_boxes[c].configure(
+                text=f"{self._ch_label(c)}  (channel {c})")
+            self.lines[c].set_color(colors[c])
+            self.lines[c].set_label(self._ch_label(c))
+        self._update_limit_lines()
 
     # ------------------------------------------------------------------ UI
 
@@ -380,13 +426,21 @@ class App(tk.Tk):
 
         body = ttk.Frame(root)
         body.pack(fill="both", expand=True, pady=(6, 0))
-        left = ttk.Frame(body, width=380)
+        left = ttk.Frame(body, width=400)
         left.pack(side="left", fill="y", padx=(0, 8))
         left.pack_propagate(False)
         right = ttk.Frame(body)
         right.pack(side="left", fill="both", expand=True)
 
-        self._build_config_panel(left)
+        self.config_book = ttk.Notebook(left)
+        self.config_book.pack(fill="x")
+        setup_tab = ttk.Frame(self.config_book, padding=6)
+        tx_tab = ttk.Frame(self.config_book, padding=6)
+        self.config_book.add(setup_tab, text="Test setup")
+        self.config_book.add(tx_tab, text="Transmit params")
+        self._build_config_panel(setup_tab)
+        self._build_transmit_panel(tx_tab)
+
         self._build_control_panel(left)
         self._build_verdict_panel(left)
         self._build_readout_panel(right)
@@ -396,20 +450,10 @@ class App(tk.Tk):
         frm = ttk.LabelFrame(parent, text="Instrument connection", padding=6)
         frm.pack(fill="x")
 
-        self.demo_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frm, text="Demo mode (no instrument)",
-                        variable=self.demo_var,
-                        command=self._on_demo_toggle).pack(side="left")
-
-        ttk.Label(frm, text="  Demo speed x").pack(side="left")
-        self.demo_speed_var = tk.StringVar(value="1")
-        ttk.Spinbox(frm, from_=1, to=120, width=5,
-                    textvariable=self.demo_speed_var).pack(side="left")
-
-        ttk.Label(frm, text="   VISA resource:").pack(side="left")
+        ttk.Label(frm, text="VISA resource:").pack(side="left")
         self.resource_var = tk.StringVar()
         self.resource_combo = ttk.Combobox(frm, textvariable=self.resource_var,
-                                           width=42)
+                                           width=48)
         self.resource_combo.pack(side="left", padx=4)
         ttk.Button(frm, text="Refresh", command=self._refresh_resources).pack(side="left")
         self.connect_btn = ttk.Button(frm, text="Connect", command=self._connect)
@@ -419,20 +463,16 @@ class App(tk.Tk):
         self.conn_status.pack(side="left", padx=8)
 
     def _build_config_panel(self, parent):
-        frm = ttk.LabelFrame(parent, text="Test configuration (IEC 60601-2-37:2024)",
-                             padding=6)
-        frm.pack(fill="x", pady=(0, 6))
-
         self.mode_var = tk.StringVar(value="peak")
         for key in ("peak", "rise6", "rise27"):
             m = TEST_MODES[key]
             ttk.Radiobutton(
-                frm, value=key, variable=self.mode_var,
+                parent, value=key, variable=self.mode_var,
                 text=f"{m['name']}\n    {m['clause']}: {m['criterion']}",
                 command=self._on_mode_change,
             ).pack(anchor="w", pady=2)
 
-        grid = ttk.Frame(frm)
+        grid = ttk.Frame(parent)
         grid.pack(fill="x", pady=(6, 0))
 
         def row(r, label, var, width=8, unit=""):
@@ -455,27 +495,111 @@ class App(tk.Tk):
         ttk.Label(grid, text="Thermocouple type").grid(row=4, column=0, sticky="w")
         self.tc_var = tk.StringVar(value=DEFAULT_TC_TYPE)
         ttk.Combobox(grid, textvariable=self.tc_var, values=("T", "K", "J"),
-                     width=6, state="readonly").grid(row=4, column=1, sticky="w", padx=4)
+                     width=6, state="readonly").grid(row=4, column=1, sticky="w",
+                                                     padx=4)
+
+        ttk.Label(grid, text="Ambient ref. channel").grid(row=5, column=0,
+                                                          sticky="w")
+        self.ambient_combo = ttk.Combobox(
+            grid, values=("Channel 3 (T3)", "Channel 2 (T2)"), width=14,
+            state="readonly")
+        self.ambient_combo.set("Channel 3 (T3)" if DEFAULT_AMBIENT_CH == 3
+                               else "Channel 2 (T2)")
+        self.ambient_combo.grid(row=5, column=1, columnspan=2, sticky="w", padx=4)
+        self.ambient_combo.bind("<<ComboboxSelected>>", self._on_ambient_change)
 
         self.autostop_steady_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frm, text="Auto-stop when both channels reach thermal "
-                                  "steady state\n(< 0.12 C/min for 3 min)",
-                        variable=self.autostop_steady_var).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(parent, text="Auto-stop when the probe reaches thermal "
+                                     "steady state\n(< 0.12 C/min for 3 min)",
+                        variable=self.autostop_steady_var).pack(anchor="w",
+                                                                pady=(6, 0))
 
-        meta = ttk.Frame(frm)
+        meta = ttk.Frame(parent)
         meta.pack(fill="x", pady=(6, 0))
         ttk.Label(meta, text="Operator").grid(row=0, column=0, sticky="w")
         self.operator_var = tk.StringVar()
-        ttk.Entry(meta, textvariable=self.operator_var, width=18).grid(
+        ttk.Entry(meta, textvariable=self.operator_var, width=20).grid(
             row=0, column=1, sticky="w", padx=4)
-        ttk.Label(meta, text="Probe / DUT ID").grid(row=1, column=0, sticky="w")
+        ttk.Label(meta, text="Catheter / DUT ID").grid(row=1, column=0, sticky="w")
         self.dut_var = tk.StringVar()
-        ttk.Entry(meta, textvariable=self.dut_var, width=18).grid(
+        ttk.Entry(meta, textvariable=self.dut_var, width=20).grid(
             row=1, column=1, sticky="w", padx=4)
+
+    def _build_transmit_panel(self, parent):
+        ttk.Label(parent,
+                  text="Ultrasound console operating settings "
+                       "(201.11.1.3.102).\nRecorded in the report, the CSV "
+                       "header and the output file names.",
+                  foreground="gray").pack(anchor="w", pady=(0, 6))
+
+        grid = ttk.Frame(parent)
+        grid.pack(fill="x")
+        self.tx_vars = {}
+
+        def combo_row(r, label, key, values, default="", width=16,
+                      readonly=False, command=None):
+            ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w", pady=1)
+            var = tk.StringVar(value=default)
+            cb = ttk.Combobox(grid, textvariable=var, values=values, width=width,
+                              state="readonly" if readonly else "normal")
+            cb.grid(row=r, column=1, sticky="w", padx=4, pady=1)
+            if command:
+                cb.bind("<<ComboboxSelected>>", command)
+            self.tx_vars[key] = var
+            return cb
+
+        def entry_row(r, label, key, default="", width=18, unit=""):
+            ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w", pady=1)
+            var = tk.StringVar(value=default)
+            ttk.Entry(grid, textvariable=var, width=width).grid(
+                row=r, column=1, sticky="w", padx=4, pady=1)
+            if unit:
+                ttk.Label(grid, text=unit).grid(row=r, column=2, sticky="w")
+            self.tx_vars[key] = var
+
+        entry_row(0, "Console SW version", "console_sw",
+                  default="", width=18)
+        combo_row(1, "Mode", "mode", CONSOLE_MODES, default="B",
+                  readonly=True, command=self._on_console_mode_change)
+        self.opt_combo = combo_row(2, "Opt (image preset)", "opt",
+                                   CONSOLE_OPTS["B"], default="PEN")
+        combo_row(3, "Image depth (cm)", "depth", DEPTH_PRESETS_CM,
+                  default="15", width=8)
+        combo_row(4, "FOV (deg)", "fov", FOV_PRESETS_DEG, default="90",
+                  width=8)
+        combo_row(5, "Focus number", "focus_num", FOCUS_NUMBER_PRESETS,
+                  default="1", width=8)
+        combo_row(6, "Focus area", "focus_area", FOCUS_AREA_PRESETS,
+                  default="1cm", width=10)
+        entry_row(7, "Line density", "line_density", default="UH", width=8)
+        entry_row(8, "F (MHz)", "f_mhz", width=8)
+        entry_row(9, "Pulses #", "pulses", width=8)
+        entry_row(10, "Frame rate (Hz)", "frame_rate", width=8)
+        entry_row(11, "PRF (Hz)", "prf", width=8)
+
+        self.tx_label_preview = ttk.Label(parent, text="", foreground="gray")
+        self.tx_label_preview.pack(anchor="w", pady=(6, 0))
+        for var in self.tx_vars.values():
+            var.trace_add("write", lambda *_: self._update_label_preview())
+        self._update_label_preview()
+
+    def _on_console_mode_change(self, _event=None):
+        mode = self.tx_vars["mode"].get()
+        opts = CONSOLE_OPTS.get(mode, ())
+        self.opt_combo["values"] = opts
+        if opts and self.tx_vars["opt"].get() not in opts:
+            self.tx_vars["opt"].set(opts[0])
+
+    def _collect_tx_params(self):
+        return {k: v.get().strip() for k, v in self.tx_vars.items()}
+
+    def _update_label_preview(self):
+        label = build_test_label(self._collect_tx_params())
+        self.tx_label_preview.configure(text=f"Test label: {label or '(none)'}")
 
     def _build_control_panel(self, parent):
         frm = ttk.LabelFrame(parent, text="Run control", padding=6)
-        frm.pack(fill="x", pady=(0, 6))
+        frm.pack(fill="x", pady=(6, 6))
 
         btns = ttk.Frame(frm)
         btns.pack(fill="x")
@@ -490,7 +614,7 @@ class App(tk.Tk):
                                        font=("Segoe UI", 12, "bold"))
         self.elapsed_label.pack(anchor="w", pady=(6, 0))
         self.status_label = ttk.Label(frm, text="Idle", foreground="gray",
-                                      wraplength=340)
+                                      wraplength=360)
         self.status_label.pack(anchor="w")
 
     def _build_verdict_panel(self, parent):
@@ -501,7 +625,7 @@ class App(tk.Tk):
                                       fg="gray")
         self.verdict_label.pack(pady=(4, 8))
 
-        self.verdict_detail = ttk.Label(frm, text="", justify="left", wraplength=340,
+        self.verdict_detail = ttk.Label(frm, text="", justify="left", wraplength=360,
                                         font=("Consolas", 10))
         self.verdict_detail.pack(anchor="w")
 
@@ -509,18 +633,19 @@ class App(tk.Tk):
         frm = ttk.Frame(parent)
         frm.pack(fill="x")
         self.readouts = {}
+        self.readout_boxes = {}
         for c in CHANNELS:
-            box = ttk.LabelFrame(frm, text=f"{CHANNEL_LABELS[c]}  (channel {c})",
-                                 padding=6)
+            box = ttk.LabelFrame(frm, text=f"channel {c}", padding=6)
             box.pack(side="left", fill="x", expand=True, padx=(0, 6))
             cur = tk.Label(box, text="--.- C", font=("Segoe UI", 26, "bold"))
             cur.pack()
-            sub = ttk.Label(box, text="max --.-   rise --.-   rate --.-",
+            sub = ttk.Label(box, text="max --.-   rise --.-   drift --.-",
                             font=("Consolas", 10))
             sub.pack()
             steady = tk.Label(box, text="steady state: --", font=("Segoe UI", 9))
             steady.pack()
             self.readouts[c] = {"cur": cur, "sub": sub, "steady": steady}
+            self.readout_boxes[c] = box
 
     def _build_plot(self, parent):
         self.fig = Figure(figsize=(7, 4.5), dpi=100)
@@ -529,9 +654,8 @@ class App(tk.Tk):
         self.ax.set_ylabel("Temperature (C)")
         self.ax.grid(True, alpha=0.3)
         self.lines = {}
-        colors = {PROBE_CH: "tab:red", AMBIENT_CH: "tab:green"}
         for c in CHANNELS:
-            (line,) = self.ax.plot([], [], label=CHANNEL_LABELS[c], color=colors[c])
+            (line,) = self.ax.plot([], [], label=f"T{c}")
             self.lines[c] = line
         self.limit_line = self.ax.axhline(43.0, color="red", linestyle="--",
                                           alpha=0.7, label="Limit")
@@ -543,12 +667,6 @@ class App(tk.Tk):
         self.canvas.get_tk_widget().pack(fill="both", expand=True, pady=(6, 0))
 
     # ------------------------------------------------------ connection
-
-    def _on_demo_toggle(self):
-        if self.demo_var.get():
-            self.resource_combo.configure(state="disabled")
-        else:
-            self.resource_combo.configure(state="normal")
 
     def _refresh_resources(self):
         self.conn_status.configure(text="Scanning instruments (*IDN?)...",
@@ -585,20 +703,16 @@ class App(tk.Tk):
         if self.dmm is not None:
             self._disconnect()
             return
+        sel = self.resource_var.get().strip()
+        if not sel:
+            messagebox.showwarning("No resource",
+                                   "Click Refresh and select the DMM6500.")
+            return
+        # Map the friendly "model | resource" label back to the VISA address;
+        # raw addresses typed by the user pass through as-is.
+        res = getattr(self, "resource_map", {}).get(sel, sel)
         try:
-            if self.demo_var.get():
-                speed = max(1.0, float(self.demo_speed_var.get() or 1))
-                dmm = SimulatedDmm(tc_type=self.tc_var.get(), time_scale=speed)
-            else:
-                sel = self.resource_var.get().strip()
-                if not sel:
-                    messagebox.showwarning("No resource",
-                                           "Select a VISA resource or enable Demo mode.")
-                    return
-                # Map the friendly "model | resource" label back to the VISA
-                # address; raw addresses typed by the user pass through as-is.
-                res = getattr(self, "resource_map", {}).get(sel, sel)
-                dmm = Dmm6500(res, tc_type=self.tc_var.get())
+            dmm = Dmm6500(res, tc_type=self.tc_var.get())
             idn = dmm.connect()
         except Exception as exc:
             messagebox.showerror("Connection failed", str(exc))
@@ -652,6 +766,9 @@ class App(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("Invalid configuration", str(exc))
             return
+        self._on_ambient_change()             # lock in the channel roles
+        self.tx_params = self._collect_tx_params()
+        self.test_label = build_test_label(self.tx_params)
 
         try:
             # Use the operator-entered ambient temperature as the simulated
@@ -663,8 +780,8 @@ class App(tk.Tk):
             messagebox.showerror("Read failed", f"Could not read instrument:\n{exc}")
             return
 
-        # In demo mode the elapsed-time clock is accelerated together with the
-        # simulated heating so a 30 min test can be previewed in seconds.
+        # time_scale is 1.0 for the real instrument; the automated self-test
+        # injects a stub with an accelerated clock.
         self.time_scale = getattr(self.dmm, "time_scale", 1.0)
         self.baseline = dict(first)
         self.max_temp = dict(first)
@@ -682,13 +799,17 @@ class App(tk.Tk):
 
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         stamp = self.test_start_wall.strftime("%Y%m%d_%H%M%S")
-        self.csv_path = os.path.join(OUTPUT_DIR, f"templog_{stamp}.csv")
+        suffix = f"_{self.test_label}" if self.test_label else ""
+        self.csv_path = os.path.join(OUTPUT_DIR, f"templog_{stamp}{suffix}.csv")
         self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
+        self.csv_file.write(self._csv_metadata())
         self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(["timestamp", "elapsed_s",
-                                  "T2_probe_C (ch2)", "T3_ambient_C (ch3)"])
+        p, a = self.probe_ch, self.ambient_ch
+        self.csv_writer.writerow(
+            ["timestamp", "elapsed_s",
+             f"T{p}_probe_C (ch{p})", f"T{a}_ambient_C (ch{a})"])
         self.csv_writer.writerow([self.test_start_wall.isoformat(timespec="seconds"),
-                                  "0.0", f"{first[2]:.3f}", f"{first[3]:.3f}"])
+                                  "0.0", f"{first[p]:.3f}", f"{first[a]:.3f}"])
 
         self.acq_stop.clear()
         self.acq_thread = threading.Thread(target=self._acquire_loop, daemon=True)
@@ -697,13 +818,43 @@ class App(tk.Tk):
         self.running = True
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
+        self.ambient_combo.configure(state="disabled")
         mode = TEST_MODES[self.mode_var.get()]
         self.status_label.configure(
-            text=f"Running: {mode['name']} ({mode['clause']}). Baseline "
-                 f"T2={first[2]:.2f} C, T3={first[3]:.2f} C.",
+            text=f"Running: {mode['name']} ({mode['clause']}). "
+                 f"Label {self.test_label or '(none)'}. Baseline "
+                 f"T{p}={first[p]:.2f} C, T{a}={first[a]:.2f} C.",
             foreground="black")
         self._update_limit_lines()
         self._set_verdict("IN PROGRESS", "gray")
+
+    def _csv_metadata(self):
+        """'#'-prefixed metadata lines written before the CSV header row."""
+        tx = getattr(self, "tx_params", {})
+        items = [
+            ("program", f"temp_monitor_gui.py V{APP_VERSION}"),
+            ("test_mode", TEST_MODES[self.mode_var.get()]["name"]),
+            ("test_label", self.test_label),
+            ("operator", self.operator_var.get()),
+            ("catheter_id", self.dut_var.get()),
+            ("probe_channel", str(self.probe_ch)),
+            ("ambient_channel", str(self.ambient_ch)),
+            ("thermal_offset_C", f"{self.cfg_offset:g}"),
+            ("ambient_entered_C", f"{self.cfg_ambient:g}"),
+            ("console_sw", tx.get("console_sw", "")),
+            ("console_mode", tx.get("mode", "")),
+            ("opt", tx.get("opt", "")),
+            ("image_depth_cm", tx.get("depth", "")),
+            ("fov_deg", tx.get("fov", "")),
+            ("focus_number", tx.get("focus_num", "")),
+            ("focus_area", tx.get("focus_area", "")),
+            ("line_density", tx.get("line_density", "")),
+            ("f_mhz", tx.get("f_mhz", "")),
+            ("pulses", tx.get("pulses", "")),
+            ("frame_rate_hz", tx.get("frame_rate", "")),
+            ("prf_hz", tx.get("prf", "")),
+        ]
+        return "".join(f"# {k}: {v}\n" for k, v in items)
 
     def _update_limit_lines(self):
         mode = TEST_MODES[self.mode_var.get()]
@@ -711,7 +862,7 @@ class App(tk.Tk):
             limit_y = mode["limit"]
             self.warn_line.set_visible(True)
         else:
-            base = self.baseline.get(PROBE_CH, 37.0)
+            base = self.baseline.get(self.probe_ch, 37.0)
             limit_y = base + mode["limit"] - getattr(self, "cfg_offset", 0.0)
             self.warn_line.set_visible(False)
         self.limit_line.set_ydata([limit_y, limit_y])
@@ -737,6 +888,7 @@ class App(tk.Tk):
             self.csv_file = None
         self.start_btn.configure(state="normal" if self.dmm else "disabled")
         self.stop_btn.configure(state="disabled")
+        self.ambient_combo.configure(state="readonly")
         self._finalize_test()
 
     # ------------------------------------------------------ acquisition
@@ -786,9 +938,9 @@ class App(tk.Tk):
                 self.min_temp[c] = v
             self.detectors[c].add(elapsed, v)
         if self.csv_writer:
-            self.csv_writer.writerow([datetime.now().isoformat(timespec="seconds"),
-                                      f"{elapsed:.1f}",
-                                      f"{temps[2]:.3f}", f"{temps[3]:.3f}"])
+            self.csv_writer.writerow(
+                [datetime.now().isoformat(timespec="seconds"), f"{elapsed:.1f}",
+                 f"{temps[self.probe_ch]:.3f}", f"{temps[self.ambient_ch]:.3f}"])
         self._update_readouts(elapsed)
         self._update_verdict_live()
 
@@ -802,9 +954,9 @@ class App(tk.Tk):
             self.stop_test(reason=f"Maximum duration reached "
                                   f"({self.cfg_duration:g} min, 201.11.1.3.103)")
         elif (self.autostop_steady_var.get()
-              and self.detectors[PROBE_CH].steady):
-            self.stop_test(reason="Thermal steady state reached on T2 probe "
-                                  "(< 0.12 C/min for 3 min, 201.11.1.3.101)")
+              and self.detectors[self.probe_ch].steady):
+            self.stop_test(reason=f"Thermal steady state reached on T{self.probe_ch} "
+                                  "probe (< 0.12 C/min for 3 min, 201.11.1.3.101)")
 
     # ------------------------------------------------------ display
 
@@ -823,7 +975,7 @@ class App(tk.Tk):
             r["sub"].configure(text=f"max {self.max_temp[c]:.2f} C   "
                                     f"rise {rise:.2f} C   drift {drift:.2f} C   "
                                     f"rate {rate_txt} C/min")
-            if c == PROBE_CH:
+            if c == self.probe_ch:
                 if det.steady:
                     r["steady"].configure(text="steady state: YES", fg="green")
                 else:
@@ -843,7 +995,6 @@ class App(tk.Tk):
             else:
                 # Ambient reference channel: show 23 +/- 3 C condition and
                 # drift (still-air test requires stability within 0.5 C).
-                drift = self.max_temp[c] - self.min_temp[c]
                 in_range = AMBIENT_MIN_C <= cur <= AMBIENT_MAX_C
                 r["cur"].configure(fg="black" if in_range else "orange")
                 r["steady"].configure(
@@ -854,20 +1005,20 @@ class App(tk.Tk):
 
     def _update_verdict_live(self):
         mode_key = self.mode_var.get()
+        p, a = self.probe_ch, self.ambient_ch
         value, limit, ok = evaluate_channel(
-            mode_key, self.max_temp[PROBE_CH], self.baseline[PROBE_CH],
-            self.cfg_offset)
+            mode_key, self.max_temp[p], self.baseline[p], self.cfg_offset)
         kind = TEST_MODES[mode_key]["kind"]
         what = "max temp" if kind == "absolute" else "rise+offset"
-        amb = self.current[AMBIENT_CH]
-        amb_drift = self.max_temp[AMBIENT_CH] - self.min_temp[AMBIENT_CH]
+        amb = self.current[a]
+        amb_drift = self.max_temp[a] - self.min_temp[a]
         amb_ok = AMBIENT_MIN_C <= amb <= AMBIENT_MAX_C
-        probe_drift = self.max_temp[PROBE_CH] - self.min_temp[PROBE_CH]
+        probe_drift = self.max_temp[p] - self.min_temp[p]
         lines = [
-            f"T2 probe: {what} = {value:6.2f} C "
+            f"T{p} probe: {what} = {value:6.2f} C "
             f"(limit {limit:.1f} C)  {'OK' if ok else 'EXCEEDED'}, "
             f"drift {probe_drift:.2f} C",
-            f"T3 ambient: {amb:.2f} C "
+            f"T{a} ambient: {amb:.2f} C "
             f"({'within' if amb_ok else 'OUTSIDE'} 23 +/- 3 C), "
             f"drift {amb_drift:.2f} C",
         ]
@@ -876,7 +1027,7 @@ class App(tk.Tk):
             self.fail_latched = True
         if self.fail_latched:
             self._set_verdict("FAIL", "red")
-        elif self.current[PROBE_CH] >= WARNING_TEMP_C and mode_key == "peak":
+        elif self.current[p] >= WARNING_TEMP_C and mode_key == "peak":
             self._set_verdict("WARNING >= 41 C", "orange")
         else:
             self._set_verdict("IN PROGRESS", "gray")
@@ -897,12 +1048,12 @@ class App(tk.Tk):
     def _finalize_test(self):
         mode_key = self.mode_var.get()
         mode = TEST_MODES[mode_key]
+        p = self.probe_ch
         value, limit, ok = evaluate_channel(
-            mode_key, self.max_temp[PROBE_CH], self.baseline[PROBE_CH],
-            self.cfg_offset)
+            mode_key, self.max_temp[p], self.baseline[p], self.cfg_offset)
         result = (value, limit, ok)
         verdict = "PASS" if ok else "FAIL"
-        steady = self.detectors[PROBE_CH].steady
+        steady = self.detectors[p].steady
         completed = steady or (self.times and
                                self.times[-1] >= self.cfg_duration * 60.0 - 1)
         if ok and not completed:
@@ -913,13 +1064,14 @@ class App(tk.Tk):
 
         self._update_plot()
         stamp = self.test_start_wall.strftime("%Y%m%d_%H%M%S")
-        png_path = os.path.join(OUTPUT_DIR, f"tempplot_{stamp}.png")
+        suffix = f"_{self.test_label}" if self.test_label else ""
+        png_path = os.path.join(OUTPUT_DIR, f"tempplot_{stamp}{suffix}.png")
         try:
             self.fig.savefig(png_path, dpi=150, bbox_inches="tight")
         except Exception:
             png_path = "(plot save failed)"
 
-        report_path = os.path.join(OUTPUT_DIR, f"report_{stamp}.txt")
+        report_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.txt")
         self._write_report(report_path, mode, result, verdict, png_path)
         messagebox.showinfo(
             "Test finished",
@@ -929,15 +1081,21 @@ class App(tk.Tk):
     def _write_report(self, path, mode, result, verdict, png_path):
         end_wall = datetime.now()
         elapsed = self.times[-1] if self.times else 0.0
-        idn = getattr(self.dmm, "idn", None) or getattr(self.dmm, "IDN", "n/a")
+        idn = getattr(self.dmm, "idn", "n/a")
         value, limit, ok = result
-        p, a = PROBE_CH, AMBIENT_CH
+        p, a = self.probe_ch, self.ambient_ch
+        tx = getattr(self, "tx_params", {})
         det = self.detectors[p]
         steady_txt = (f"yes, at {det.steady_at/60.0:.1f} min"
                       if det.steady else "no")
         amb_min, amb_max = self.min_temp[a], self.max_temp[a]
         amb_in_range = (AMBIENT_MIN_C <= amb_min and amb_max <= AMBIENT_MAX_C)
         amb_drift = amb_max - amb_min
+
+        def tx_line(label, key, unit=""):
+            val = tx.get(key, "") or "(not entered)"
+            return f"    {label:<21}: {val}{unit if tx.get(key) else ''}"
+
         lines = [
             "=" * 72,
             "ICE TRANSDUCER SURFACE TEMPERATURE TEST REPORT",
@@ -947,13 +1105,15 @@ class App(tk.Tk):
             f"Test mode        : {mode['name']}",
             f"Clause           : {mode['clause']}",
             f"Criterion        : {mode['criterion']}",
+            f"Test label       : {self.test_label or '(none)'}",
             f"Verdict          : {verdict}",
             "-" * 72,
             f"Operator         : {self.operator_var.get() or '(not entered)'}",
-            f"Probe / DUT ID   : {self.dut_var.get() or '(not entered)'}",
+            f"Catheter / DUT ID: {self.dut_var.get() or '(not entered)'}",
             f"Instrument       : {idn}",
             f"Thermocouple     : type {self.tc_var.get()}; "
-            "T2 probe = ch 2 (DUT surface), T3 ambient = ch 3 (reference)",
+            f"T{p} probe = ch {p} (DUT surface), "
+            f"T{a} ambient = ch {a} (reference)",
             f"Start            : {self.test_start_wall.isoformat(timespec='seconds')}",
             f"End              : {end_wall.isoformat(timespec='seconds')}",
             f"Elapsed          : {elapsed/60.0:.1f} min",
@@ -963,7 +1123,21 @@ class App(tk.Tk):
             f"Thermal offset   : {self.cfg_offset:.2f} C (201.3.228)",
             f"Sample interval  : {self.cfg_interval:g} s",
             "-" * 72,
-            "T2 probe (channel 2, device under test):",
+            "Operating settings of the ultrasound console (201.11.1.3.102):",
+            tx_line("Console SW version", "console_sw"),
+            tx_line("Mode", "mode"),
+            tx_line("Opt (image preset)", "opt"),
+            tx_line("Image depth", "depth", " cm"),
+            tx_line("FOV", "fov", " deg"),
+            tx_line("Focus number", "focus_num"),
+            tx_line("Focus area", "focus_area"),
+            tx_line("Line density", "line_density"),
+            tx_line("F", "f_mhz", " MHz"),
+            tx_line("Pulses #", "pulses"),
+            tx_line("Frame rate", "frame_rate", " Hz"),
+            tx_line("PRF", "prf", " Hz"),
+            "-" * 72,
+            f"T{p} probe (channel {p}, device under test):",
             f"    Baseline             : {self.baseline[p]:.2f} C",
             f"    Min / Max            : {self.min_temp[p]:.2f} C / "
             f"{self.max_temp[p]:.2f} C",
@@ -973,7 +1147,7 @@ class App(tk.Tk):
             f"    Result               : {'PASS' if ok else 'FAIL'}",
             f"    Thermal steady state : {steady_txt} "
             "(rate < 0.12 C/min for 3 consecutive minutes)",
-            "T3 ambient (channel 3, test condition record):",
+            f"T{a} ambient (channel {a}, test condition record):",
             f"    Baseline             : {self.baseline[a]:.2f} C",
             f"    Min / Max            : {amb_min:.2f} C / {amb_max:.2f} C",
             f"    Drift (max-min)      : {amb_drift:.2f} C "
@@ -981,7 +1155,6 @@ class App(tk.Tk):
             f"    Within 23 +/- 3 C    : {'yes' if amb_in_range else 'NO'}",
             "-" * 72,
             "TO BE COMPLETED BY OPERATOR (required by the standard):",
-            "  Transmit parameters / operating settings (201.11.1.3.102): ________",
             "  Measurement uncertainty (201.11.1.3.104):                  ________",
             "  Test object temperature before contact (>= 37 C, method a): _______",
             "-" * 72,

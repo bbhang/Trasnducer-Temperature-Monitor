@@ -8,13 +8,14 @@ and judging compliance against IEC 60601-2-37:2024 clause 201.11
 
 - **Instrument:** Keithley DMM6500 with the 2000-SCAN scanner card installed in the
   **rear panel** card slot.
-- **Probes:** two type-T thermocouples (default; K/J selectable in the GUI):
-  - **T2** → scanner card **channel 2** — on the **transducer surface (DUT)**;
-    this is the channel evaluated against the IEC limits and used for
-    steady-state auto-stop.
-  - **T3** → scanner card **channel 3** — **ambient reference**; recorded to
-    document the 23 ± 3 °C test condition (and ≤ 0.5 °C stability for the
-    still-air test). It does not participate in the pass/fail verdict.
+- **Probes:** two type-T thermocouples (default; K/J selectable in the GUI) on
+  scanner-card channels 2 (T2) and 3 (T3). One channel is the **probe** on the
+  transducer surface (DUT) — evaluated against the IEC limits and used for
+  steady-state auto-stop; the other is the **ambient reference** — recorded to
+  document the 23 ± 3 °C test condition (and ≤ 0.5 °C stability for the
+  still-air test), not part of the pass/fail verdict. Which channel is the
+  ambient reference is selected in the GUI (*Ambient ref. channel*, default
+  channel 3).
 - Set the front-panel **TERMINALS** switch to **REAR**.
 - **Connection:** USB cable from the DMM6500 rear USB-B port to the PC.
   A VISA runtime must be installed (NI-VISA or Keysight IO Libraries; alternatively
@@ -40,9 +41,7 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    DMM6500** from the list, which shows each instrument as `model | address`.
    Click *Connect*; the `*IDN?` string appears in green. Connecting to anything
    that is not a DMM6500 is refused (so a scope is never accidentally `*RST`).
-   (Or tick *Demo mode* to try the program without hardware; *Demo speed*
-   accelerates a 30 min test.)
-2. **Configure the test** (left panel):
+2. **Configure the test** (*Test setup* tab):
    - Test mode — choose per your test plan:
      - *Simulated use a) Peak temperature* — tissue-mimicking phantom preheated to
        ≥ 37 °C; limit: surface temperature ≤ **43 °C**.
@@ -53,44 +52,61 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
      0.0 if none.
    - *Ambient temperature* — record the room temperature; the standard requires
      23 ± 3 °C and the GUI warns if the entered value is outside that range.
+   - *Ambient ref. channel* — choose which TC channel (2 or 3, default 3) is
+     the ambient reference; the **other channel becomes the probe** evaluated
+     against the IEC limits. All labels, plot colors, CSV columns and report
+     sections follow the selection.
    - *Sample interval* (default 1 s), *Max test duration* (default 30 min),
-     thermocouple type, operator and probe ID (stored in the report).
-3. **Prepare the DUT** — set the ultrasound system to the operating mode that
-   produces the **highest surface temperature** (201.11.1.3.102) and note the
-   transmit parameters for the report.
+     thermocouple type, operator and catheter/DUT ID (stored in the report).
+3. **Enter the console operating settings** (*Transmit params* tab,
+   201.11.1.3.102) — set the ultrasound system to the operating mode that
+   produces the **highest surface temperature** and record it here. Every
+   console mode must be tested in its own run:
+   - *Mode*: B, C, C+B, PW, CW. *Opt* presets follow the mode — B: PEN, GEN,
+     GRES, RES, HPEN, HGEN, HGRES1, HGRES2, HRES; C: PEN, GEN and combined
+     presets such as PEN(C)+GEN(B). All fields remain editable free text.
+   - *Image depth (cm)*, *FOV (deg)*, *Focus number* (1/2/3/4/X), *Focus
+     area* (e.g. 1cm, 1,2cm, 0-1cm), *Line density*, *F (MHz)*, *Pulses #*,
+     *Frame rate*, *PRF*, *Console SW version*.
+   - The tab shows the resulting **test label** (e.g.
+     `B-PEN-D15-FOV90-FN1-1cm`); it is appended to all output filenames so
+     each mode's run is identifiable.
 4. **Start test** — press *Start test* **just before activating acoustic output**.
    The first reading is stored as the per-channel **baseline** used for the
    temperature-rise calculation.
-5. **Monitor** — live readouts show current/max/rise/rate per channel, a live plot
-   with the limit line, a steady-state indicator, and the live verdict:
+5. **Monitor** — live readouts show current/max/rise/drift/rate per channel, a
+   live plot with the limit line, a steady-state indicator, and the live verdict:
    - **IN PROGRESS** (gray) — no limit exceeded yet.
    - **WARNING ≥ 41 C** (orange) — peak mode only (201.12.4.2 j).
    - **FAIL** (red) — a limit was exceeded (latched for the rest of the run).
    - If the ultrasound system auto-freezes, re-activate it immediately
      (201.11.1.3.103).
 6. **End of test** — the run stops automatically after the configured duration
-   (default 30 min) or when **both** channels reach thermal steady state
+   (default 30 min) or when the **probe** channel reaches thermal steady state
    (rate < 0.12 °C/min held for 3 min, 201.11.1.3.101), whichever comes first;
    *Stop test* ends it manually (the report then notes an incomplete test).
 
 ## 4. Output files (saved to `temp\`)
 
+`<label>` below is the transmit-parameter test label, e.g. `B-PEN-D15-FOV90-FN1-1cm`.
+
 | File | Content |
 |---|---|
-| `templog_YYYYMMDD_HHMMSS.csv` | timestamp, elapsed s, T2 °C, T3 °C — every sample |
-| `report_YYYYMMDD_HHMMSS.txt` | test conditions, baseline/max/rise per channel, steady-state times, PASS/FAIL verdict, operator fill-in fields |
-| `tempplot_YYYYMMDD_HHMMSS.png` | temperature curves with limit lines |
+| `templog_YYYYMMDD_HHMMSS_<label>.csv` | `#` metadata lines (program version, mode, opt, depth, FOV, focus, operator, ...) then timestamp, elapsed s, probe °C, ambient °C — every sample |
+| `report_YYYYMMDD_HHMMSS_<label>.txt` | test conditions, operating-settings block (201.11.1.3.102), baseline/min/max/drift/rise per channel, steady-state time, PASS/FAIL verdict, operator fill-in fields |
+| `tempplot_YYYYMMDD_HHMMSS_<label>.png` | temperature curves with limit lines |
 
-After the run, complete the report's operator fields: transmit parameters
-(201.11.1.3.102), measurement uncertainty (201.11.1.3.104), and — for method a) —
-the test-object temperature before contact (≥ 37 °C for invasive use).
+After the run, complete the report's operator fields: measurement uncertainty
+(201.11.1.3.104) and — for method a) — the test-object temperature before
+contact (≥ 37 °C for invasive use).
 
 ## 5. Pass/fail logic
 
-Evaluated independently for T2 and T3; overall verdict is PASS only if **both**
-channels pass:
+The verdict is evaluated on the **probe channel only** (the channel not chosen
+as ambient reference); the ambient channel is recorded as a test condition
+(23 ± 3 °C range and drift):
 
-| Mode | Evaluated value | Limit |
+| Mode | Evaluated value (probe) | Limit |
 |---|---|---|
 | Simulated use a) | maximum temperature | ≤ 43.0 °C |
 | Simulated use b) | (max − baseline) + thermal offset | ≤ 6.0 °C |
@@ -139,7 +155,9 @@ Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-u
 
 ## 7. Verification status
 
-`temp\selftest.py` exercises the verdict formulas, the steady-state detector and a
-full accelerated demo-mode run (CSV/report/PNG generation, auto-stop on steady
-state). All checks pass as of 2026-06-09. Real-instrument validation (USB VISA
-address, channel configuration) is to be performed on the bench.
+`temp\selftest.py` exercises the verdict formulas, the test-label builder, the
+steady-state detector and a full accelerated end-to-end run using a test-only
+instrument stub (swapped channel roles, CSV metadata, operating-settings block
+in the report, auto-stop on steady state). All checks pass as of 2026-06-09
+(V1.1.0). Real-instrument validation (USB VISA address, channel configuration)
+is to be performed on the bench.

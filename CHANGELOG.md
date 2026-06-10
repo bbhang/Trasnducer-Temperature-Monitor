@@ -3,8 +3,29 @@
 ICE Transducer Temperature Monitor — DMM6500, IEC 60601-2-37:2024.
 Version is bumped on every update; the same version is set in
 `code/temp_monitor_gui.py` (`APP_VERSION`), shown in the window title and the
-test report, mirrored in the module docstring "Latest update notes", and tagged
-in git (`vX.Y.Z`).
+test report, carried in the file's header comment block (`Notes` field holds
+the latest update description), and tagged in git (`vX.Y.Z`).
+
+## V1.1.0 — 2026-06-09
+
+- **Removed demo mode** (`SimulatedDmm`) from the application; an equivalent
+  stub now lives only in `temp/selftest.py` for automated testing.
+- **Ambient-channel selector**: new dropdown chooses whether channel 2 or
+  channel 3 is the ambient reference TC; the other channel becomes the probe
+  (DUT) evaluated against the IEC limits. Labels, plot colors, CSV columns and
+  report sections follow the selection.
+- **Transmit parameters tab** (201.11.1.3.102): records console SW version,
+  Mode (B/C/C+B/PW/CW), Opt (PEN/GEN/GRES/RES/HPEN/HGEN/HGRES1/HGRES2/HRES for
+  B; PEN/GEN and combined presets for C), image depth, FOV, focus number,
+  focus area, line density, F (MHz), pulses #, frame rate, PRF — presets from
+  `doc/Acoustic Safety Test Parameters.xlsx`, all fields editable.
+- The settings build a test label (e.g. `B-PEN-D15-FOV90-FN1-1cm`) appended to
+  CSV/report/PNG filenames so each console mode's run is identifiable; the
+  full settings are written as `#` metadata lines at the top of the CSV and as
+  an "Operating settings" block in the report (the blank transmit-parameters
+  fill-in line is gone).
+- Left configuration column reorganized into "Test setup" / "Transmit params"
+  notebook tabs.
 
 ## V1.0.1 — 2026-06-09
 
