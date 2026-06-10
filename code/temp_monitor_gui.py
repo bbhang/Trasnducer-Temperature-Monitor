@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.8
+# Version : 1.3.9
 # Modified: 2026-06-10
-# Notes   : v1.3.8 - Default test mode is now "Simulated use b) Temperature
-#           rise": the system has no closed-loop temperature monitoring, so
-#           IEC 60601-2-37 201.11.1.3.101.1 allows selecting a) or b), and
-#           b) is the method chosen for this test program. Method a) remains
-#           selectable.
+# Notes   : v1.3.9 - Frame rate / PRF auto-fill only under measured table
+#           conditions: B+C now also requires B Opt = GEN and C ROI =
+#           0-1 cm (the only combinations measured in the parameter
+#           table); any other combination leaves Frame rate and PRF
+#           empty for manual entry.
 #           (Older notes: see CHANGELOG.md; Notes holds only the latest.)
 # =============================================================================
 """ICE Transducer Temperature Monitor.
@@ -54,7 +54,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.8"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.9"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -168,7 +168,7 @@ def mode_tokens(mode):
     return [t for t in mode.split("+") if t]
 
 
-def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth):
+def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth, c_roi=""):
     """Derive the fixed/auto transmit parameters for a mode selection.
 
     Returns {'f_mhz', 'pulses', 'frame_rate', 'prf'} as strings; empty when
@@ -176,8 +176,9 @@ def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth):
       - F is fixed per Opt (C frequency when a C mode is active, as in the
         table's combined-mode rows).
       - Pulses#: B non-harmonic = 2, harmonic (H*) = 1; modes with C = 4.
-      - Frame rate / PRF only auto-fill at 15 cm depth, where the table has
-        measured values.
+      - Frame rate / PRF only auto-fill for combinations measured in the
+        table (15 cm depth); any combination outside the measured
+        conditions leaves them empty for manual entry.
     """
     toks = mode_tokens(mode)
     out = {"f_mhz": "", "pulses": "", "frame_rate": "", "prf": ""}
@@ -195,7 +196,12 @@ def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth):
             else:
                 fr_prf = B_MULTIFOCUS_FRAME_PRF.get((b_opt, fov, focus_num))
         elif mode == "B+C":
-            fr_prf = BC_FRAME_PRF.get((c_opt, fov))
+            # The table measured B+C only with B preset GEN and C ROI
+            # 0-1 cm (rows PEN(C)+GEN(B) / GEN(C)+GEN(B), focus number
+            # not applicable); any other B Opt or ROI is an unmeasured
+            # condition and the fields stay empty.
+            if b_opt == "GEN" and c_roi == "0-1":
+                fr_prf = BC_FRAME_PRF.get((c_opt, fov))
     if fr_prf:
         out["frame_rate"], out["prf"] = fr_prf
     return out
@@ -782,7 +788,8 @@ class App(tk.Tk):
         self.tx_label_preview.pack(anchor="w", pady=(6, 0))
         for var in self.tx_vars.values():
             var.trace_add("write", lambda *_: self._update_label_preview())
-        for key in ("mode", "b_opt", "c_opt", "fov", "focus_num", "depth"):
+        for key in ("mode", "b_opt", "c_opt", "c_roi", "fov", "focus_num",
+                    "depth"):
             self.tx_vars[key].trace_add("write",
                                         lambda *_: self._update_tx_auto())
         self._on_console_mode_change()
@@ -820,7 +827,8 @@ class App(tk.Tk):
             self.tx_vars["mode"].get(), self.tx_vars["b_opt"].get(),
             self.tx_vars["c_opt"].get(), self.tx_vars["fov"].get(),
             self.tx_vars["focus_num"].get(),
-            self.tx_vars["depth"].get().strip())
+            self.tx_vars["depth"].get().strip(),
+            self.tx_vars["c_roi"].get())
         for key in ("f_mhz", "pulses", "frame_rate", "prf"):
             if self.tx_vars[key].get() != auto[key]:
                 self.tx_vars[key].set(auto[key])

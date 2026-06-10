@@ -92,9 +92,11 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    - *Image depth* (3–15 cm), *FOV* (90/100/115/120 deg), *Focus number*
      (1–4) with **one focus-position box per focus** (recorded as the focus
      area, e.g. `1,2,3cm`), *Line density*, *Console SW version*.
-   - *Frame rate* and *PRF* fill automatically when the combination exists
-     in `doc/Acoustic Safety Test Parameters.xlsx` (15 cm depth); otherwise
-     enter them manually.
+   - *Frame rate* and *PRF* fill automatically only when the exact
+     combination was measured in `doc/Acoustic Safety Test Parameters.xlsx`
+     (15 cm depth; B+C additionally requires B Opt GEN and C ROI 0–1 cm);
+     any other combination leaves them empty — enter the values read from
+     the console/oscilloscope manually.
    - The tab shows the resulting **test label** (e.g.
      `B-PEN-D15-FOV90-FN1-1cm`); it is appended to all output filenames so
      each mode's run is identifiable.
@@ -256,6 +258,6 @@ application's own simulated instrument (swapped channel roles, live monitor
 with pre-contact capture and no recording, CSV metadata, operating-settings
 block in the report, auto-stop on steady state, PDF report, re-save with
 amended fields, per-run output folder and re-save into a chosen folder).
-All checks pass as of 2026-06-10 (V1.3.8).
+All checks pass as of 2026-06-10 (V1.3.9).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

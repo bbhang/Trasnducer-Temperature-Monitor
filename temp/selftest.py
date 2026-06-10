@@ -63,13 +63,22 @@ check("auto B/HRES/120: F 9, 1 pulse (harmonic), FR 11.62",
 a = m.auto_tx_params("B", "PEN", "PEN", "90", "3", "15")
 check("auto B/PEN/90 3-focus: FR 11.71",
       a["frame_rate"] == "11.71" and a["prf"] == "4182")
-a = m.auto_tx_params("B+C", "GEN", "PEN", "100", "1", "15")
+a = m.auto_tx_params("B+C", "GEN", "PEN", "100", "1", "15", c_roi="0-1")
 check("auto B+C PEN(C): F 4.5, 4 pulses, FR 14.6, PRF 10000",
       a == {"f_mhz": "4.5", "pulses": "4",
             "frame_rate": "14.6", "prf": "10000"})
-a = m.auto_tx_params("B+C", "GEN", "GEN", "120", "1", "15")
+a = m.auto_tx_params("B+C", "GEN", "GEN", "120", "1", "15", c_roi="0-1")
 check("auto B+C FOV120: FR/PRF not tabulated -> empty",
       a["f_mhz"] == "4.8" and a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B+C", "PEN", "PEN", "90", "1", "15", c_roi="0-1")
+check("auto B+C with B Opt != GEN: FR/PRF empty (not measured)",
+      a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B+C", "GEN", "PEN", "90", "1", "15", c_roi="0-15")
+check("auto B+C with C ROI 0-15: FR/PRF empty (not measured)",
+      a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B", "GEN", "PEN", "90", "2", "15")
+check("auto B/GEN/90 2-focus: FR/PRF empty (only PEN measured)",
+      a["frame_rate"] == "" and a["prf"] == "")
 a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "10")
 check("auto depth != 15: FR/PRF empty",
       a["frame_rate"] == "" and a["prf"] == "")

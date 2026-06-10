@@ -6,6 +6,20 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.9 — 2026-06-10
+
+- **Frame rate / PRF auto-fill only under measured table conditions**: the
+  parameter table measured B+C only with B Opt = GEN and C ROI = 0–1 cm
+  (rows `PEN(C)+GEN(B)` / `GEN(C)+GEN(B)`), but the auto-fill keyed only on
+  C Opt and FOV, so B+C with any other B Opt (PEN, GRES, RES, HPEN, HRES)
+  or with C ROI 0–15 cm wrongly auto-filled 14.6 Hz / 10000 Hz. These
+  unmeasured combinations now leave *Frame rate* and *PRF* empty for
+  manual entry, like every other condition not in the table.
+- `auto_tx_params()` takes the C ROI as a new argument; changing the
+  *C ROI* selector now re-evaluates the auto-filled fields.
+- `temp/selftest.py`: checks that B+C with B Opt ≠ GEN, B+C with C ROI
+  0–15, and B multifocus with a non-PEN Opt all leave FR/PRF empty.
+
 ## V1.3.8 — 2026-06-10
 
 - **Default test mode is now *Simulated use b) Temperature rise***: the
