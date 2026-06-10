@@ -183,6 +183,6 @@ Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-u
 steady-state detector and a full accelerated end-to-end run using the
 application's own simulated instrument (swapped channel roles, CSV metadata,
 operating-settings block in the report, auto-stop on steady state, PDF report,
-re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.1).
+re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.2).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

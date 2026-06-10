@@ -6,6 +6,13 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.2 — 2026-06-09
+
+- **Plot legend**: the limit-line label now shows the actual limit value in
+  parentheses (e.g. `Limit (43.0 C)` — for rise modes the plotted absolute
+  level baseline + limit − offset) with the cited standard
+  (`IEC 60601-2-37 <clause>`) on a second line below it.
+
 ## V1.3.1 — 2026-06-09
 
 - **"Save report" button** (Run control): enabled when a run ends. The

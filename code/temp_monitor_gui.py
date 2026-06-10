@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.1
+# Version : 1.3.2
 # Modified: 2026-06-09
-# Notes   : v1.3.1 - "Save report" button: enabled after a run ends; amend
+# Notes   : v1.3.2 - Plot legend: limit line shows the numeric limit value
+#           with the cited IEC clause on a second line.
+#           v1.3.1 - "Save report" button: enabled after a run ends; amend
 #           the UI fields and save again (verdict re-evaluated, files keep
 #           the run's start timestamp). Reports also written as PDF:
 #           page 1 report text, page 2 temperature plot (matplotlib
@@ -63,7 +65,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.1"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.2"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -1112,7 +1114,8 @@ class App(tk.Tk):
             limit_y = base + mode["limit"] - getattr(self, "cfg_offset", 0.0)
             self.warn_line.set_visible(False)
         self.limit_line.set_ydata([limit_y, limit_y])
-        self.limit_line.set_label(f"Limit ({mode['clause']})")
+        self.limit_line.set_label(f"Limit ({limit_y:.1f} C)\n"
+                                  f"IEC 60601-2-37 {mode['clause']}")
         visible = [ln for ln in (*self.lines.values(), self.limit_line,
                                  self.warn_line) if ln.get_visible()]
         self.ax.legend(visible, [ln.get_label() for ln in visible],
