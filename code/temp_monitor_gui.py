@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.3
+# Version : 1.3.4
 # Modified: 2026-06-09
-# Notes   : v1.3.3 - New Test-setup fields "Meas. uncertainty"
+# Notes   : v1.3.4 - Live monitor ("Monitor (no record)"): reads and
+#           displays both channels without recording, for the pre-contact
+#           >= 37 C and ambient 23 +/- 3 C checks; "-> DUT temp before
+#           contact" captures the probe reading into the Test-setup field.
+#           Each acquisition thread now owns its stop event. User Guide:
+#           measurement-uncertainty guidance (201.11.1.3.104).
+#           v1.3.3 - New Test-setup fields "Meas. uncertainty"
 #           (201.11.1.3.104) and "DUT temp before contact" replace the
 #           report's blank fill-in lines; values go into the report and
 #           CSV metadata.
@@ -69,7 +75,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.3"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.4"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -503,6 +509,8 @@ class App(tk.Tk):
         self.data_queue = queue.Queue()
 
         self.running = False
+        self.monitoring = False
+        self.last_monitor_temps = None
         self.probe_ch = 2
         self.ambient_ch = DEFAULT_AMBIENT_CH
         self.test_start_wall = None
@@ -856,6 +864,19 @@ class App(tk.Tk):
                                    command=self.save_report, state="disabled")
         self.save_btn.pack(side="left", padx=2)
 
+        # Live readout without recording, for the pre-run condition checks
+        # (test-object temperature before contact, ambient 23 +/- 3 C).
+        mon = ttk.Frame(frm)
+        mon.pack(fill="x", pady=(4, 0))
+        self.monitor_btn = ttk.Button(mon, text="Monitor (no record)",
+                                      command=self.toggle_monitor,
+                                      state="disabled")
+        self.monitor_btn.pack(side="left", padx=2)
+        self.capture_btn = ttk.Button(mon, text="-> DUT temp before contact",
+                                      command=self._capture_precontact,
+                                      state="disabled")
+        self.capture_btn.pack(side="left", padx=2)
+
         self.elapsed_label = ttk.Label(frm, text="Elapsed: 00:00",
                                        font=("Segoe UI", 12, "bold"))
         self.elapsed_label.pack(anchor="w", pady=(6, 0))
@@ -975,18 +996,21 @@ class App(tk.Tk):
             foreground="orange" if res == DEMO_RESOURCE else "green")
         self.connect_btn.configure(text="Disconnect")
         self.start_btn.configure(state="normal")
+        self.monitor_btn.configure(state="normal")
         self.status_label.configure(text="Connected. Configure the test and press "
                                          "Start.", foreground="black")
 
     def _disconnect(self):
         if self.running:
             self.stop_test()
+        self.stop_monitor()
         if self.dmm is not None:
             self.dmm.close()
             self.dmm = None
         self.conn_status.configure(text="Not connected", foreground="gray")
         self.connect_btn.configure(text="Connect")
         self.start_btn.configure(state="disabled")
+        self.monitor_btn.configure(state="disabled")
 
     # ------------------------------------------------------ test control
 
@@ -1014,6 +1038,7 @@ class App(tk.Tk):
     def start_test(self):
         if self.dmm is None or self.running:
             return
+        self.stop_monitor()
         try:
             self.cfg_offset, self.cfg_interval, self.cfg_duration, self.cfg_ambient = \
                 self._read_config()
@@ -1078,14 +1103,23 @@ class App(tk.Tk):
         self.csv_writer.writerow([self.test_start_wall.isoformat(timespec="seconds"),
                                   "0.0", f"{first[p]:.3f}", f"{first[a]:.3f}"])
 
-        self.acq_stop.clear()
-        self.acq_thread = threading.Thread(target=self._acquire_loop, daemon=True)
+        # Fresh stop event per thread: a previous (monitor) thread that is
+        # still finishing its last read keeps its own, already-set event.
+        while not self.data_queue.empty():
+            try:
+                self.data_queue.get_nowait()
+            except queue.Empty:
+                break
+        self.acq_stop = threading.Event()
+        self.acq_thread = threading.Thread(
+            target=self._acquire_loop, args=(self.acq_stop,), daemon=True)
         self.acq_thread.start()
 
         self.running = True
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.save_btn.configure(state="disabled")
+        self.monitor_btn.configure(state="disabled")
         self.ambient_combo.configure(state="disabled")
         mode = TEST_MODES[self.mode_var.get()]
         self.status_label.configure(
@@ -1159,15 +1193,101 @@ class App(tk.Tk):
             self.csv_file = None
         self.start_btn.configure(state="normal" if self.dmm else "disabled")
         self.stop_btn.configure(state="disabled")
+        self.monitor_btn.configure(state="normal" if self.dmm else "disabled")
         self.ambient_combo.configure(state="readonly")
         self._finalize_test()
 
+    # ------------------------------------------------------ live monitor
+
+    def toggle_monitor(self):
+        if self.monitoring:
+            self.stop_monitor()
+        else:
+            self.start_monitor()
+
+    def start_monitor(self):
+        """Live readout without recording: no CSV, no statistics, no report.
+
+        Pre-run condition check, in particular the test-object temperature
+        before contact (>= 37 C for method a, 201.11.1.3.101.1) and the
+        23 +/- 3 C ambient.
+        """
+        if self.dmm is None or self.running or self.monitoring:
+            return
+        try:
+            self.cfg_interval = max(0.2, float(self.interval_var.get()))
+        except ValueError:
+            self.cfg_interval = DEFAULT_INTERVAL_S
+        self._on_ambient_change()             # lock in the channel roles
+        try:
+            if isinstance(self.dmm, Dmm6500):
+                try:
+                    amb = float(self.ambient_var.get())
+                except ValueError:
+                    amb = 23.0
+                self.dmm.set_sim_ref_junction(amb)
+            elif isinstance(self.dmm, SimulatedDmm):
+                self.dmm.start_heating(self.probe_ch)
+        except Exception as exc:
+            messagebox.showerror("Monitor failed", str(exc))
+            return
+        self.monitoring = True
+        self.last_monitor_temps = None
+        self.acq_stop = threading.Event()
+        self.acq_thread = threading.Thread(
+            target=self._acquire_loop, args=(self.acq_stop,), daemon=True)
+        self.acq_thread.start()
+        self.monitor_btn.configure(text="Stop monitor")
+        self.capture_btn.configure(state="normal")
+        self.status_label.configure(
+            text="Monitoring - live readout only, nothing is recorded.",
+            foreground="black")
+
+    def stop_monitor(self):
+        if not self.monitoring:
+            return
+        self.monitoring = False
+        self.acq_stop.set()
+        self.monitor_btn.configure(text="Monitor (no record)")
+        self.capture_btn.configure(state="disabled")
+        self.status_label.configure(text="Monitor stopped.", foreground="gray")
+
+    def _capture_precontact(self):
+        """Copy the probe's live reading into 'DUT temp before contact'."""
+        if not self.monitoring or not self.last_monitor_temps:
+            return
+        v = self.last_monitor_temps[self.probe_ch]
+        self.precontact_var.set(f"{v:.2f}")
+        self.status_label.configure(
+            text=f"DUT temp before contact set to {v:.2f} C "
+                 f"(T{self.probe_ch} probe).", foreground="black")
+
+    def _handle_monitor_sample(self, temps):
+        self.last_monitor_temps = temps
+        for c in CHANNELS:
+            r = self.readouts[c]
+            v = temps[c]
+            r["sub"].configure(text="live monitor - not recorded")
+            if c == self.probe_ch:
+                ok37 = v >= 37.0
+                r["cur"].configure(text=f"{v:.2f} C", fg="black")
+                r["steady"].configure(
+                    text=f"pre-contact >= 37 C: {'yes' if ok37 else 'not yet'}",
+                    fg="green" if ok37 else "gray")
+            else:
+                in_range = AMBIENT_MIN_C <= v <= AMBIENT_MAX_C
+                r["cur"].configure(text=f"{v:.2f} C",
+                                   fg="black" if in_range else "orange")
+                r["steady"].configure(
+                    text=f"23 +/- 3 C: {'OK' if in_range else 'OUT OF RANGE'}",
+                    fg="green" if in_range else "orange")
+
     # ------------------------------------------------------ acquisition
 
-    def _acquire_loop(self):
+    def _acquire_loop(self, stop_evt):
         interval = self.cfg_interval
         next_t = time.monotonic()
-        while not self.acq_stop.is_set():
+        while not stop_evt.is_set():
             try:
                 temps = self.dmm.read_temps()
                 self.data_queue.put(("data", time.monotonic(), temps))
@@ -1177,7 +1297,7 @@ class App(tk.Tk):
             next_t += interval
             delay = next_t - time.monotonic()
             if delay > 0:
-                if self.acq_stop.wait(delay):
+                if stop_evt.wait(delay):
                     return
             else:
                 next_t = time.monotonic()
@@ -1190,8 +1310,13 @@ class App(tk.Tk):
                     if self.running:
                         self.stop_test(reason=f"Instrument error: {payload}")
                         messagebox.showerror("Instrument error", payload)
+                    elif self.monitoring:
+                        self.stop_monitor()
+                        messagebox.showerror("Instrument error", payload)
                 elif kind == "data" and self.running:
                     self._handle_sample(t_mono, payload)
+                elif kind == "data" and self.monitoring:
+                    self._handle_monitor_sample(payload)
         except queue.Empty:
             pass
         self.after(self.POLL_MS, self._poll_queue)
@@ -1506,6 +1631,7 @@ class App(tk.Tk):
             if not messagebox.askokcancel("Quit", "A test is running. Stop and quit?"):
                 return
             self.stop_test(reason="Application closed")
+        self.stop_monitor()
         if self.dmm is not None:
             self.dmm.close()
         self.destroy()

@@ -68,7 +68,7 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    - *Meas. uncertainty* (201.11.1.3.104) and *DUT temp before contact*
      (≥ 37 °C, method a) — operator fields required by the standard, written
      into the report and the CSV metadata. They are usually known only after
-     the run: fill them in and press *Save report* (step 7).
+     the run: fill them in and press *Save report* (step 8).
 3. **Enter the console operating settings** (*Transmit params* tab,
    201.11.1.3.102) — set the ultrasound system to the operating mode that
    produces the **highest surface temperature** and record it here. Every
@@ -90,22 +90,31 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    - The tab shows the resulting **test label** (e.g.
      `B-PEN-D15-FOV90-FN1-1cm`); it is appended to all output filenames so
      each mode's run is identifiable.
-4. **Start test** — press *Start test* **just before activating acoustic output**.
+4. **Pre-contact check (optional)** — *Monitor (no record)* starts a live
+   readout **without recording anything** (no CSV, no statistics, no report):
+   use it to verify the test conditions before the run, in particular that
+   the test object is preheated to **≥ 37 °C** (simulated-use method a,
+   201.11.1.3.101.1) and that the ambient is within 23 ± 3 °C. The button
+   *→ DUT temp before contact* copies the probe's live reading into the
+   corresponding *Test setup* field, so the pre-contact temperature is
+   documented in the report. Press *Stop monitor* when done — or simply press
+   *Start test*, which stops the monitor automatically.
+5. **Start test** — press *Start test* **just before activating acoustic output**.
    The first reading is stored as the per-channel **baseline** used for the
    temperature-rise calculation.
-5. **Monitor** — live readouts show current/max/rise/drift/rate per channel, a
+6. **During the test** — live readouts show current/max/rise/drift/rate per channel, a
    live plot with the limit line, a steady-state indicator, and the live verdict:
    - **IN PROGRESS** (gray) — no limit exceeded yet.
    - **WARNING ≥ 41 C** (orange) — peak mode only (201.12.4.2 j).
    - **FAIL** (red) — a limit was exceeded (latched for the rest of the run).
    - If the ultrasound system auto-freezes, re-activate it immediately
      (201.11.1.3.103).
-6. **End of test** — the run stops automatically after the configured duration
+7. **End of test** — the run stops automatically after the configured duration
    (default 30 min) or when the **probe** channel reaches thermal steady state
    (rate < 0.12 °C/min held for 3 min, 201.11.1.3.101), whichever comes first;
    *Stop test* ends it manually (the report then notes an incomplete test).
    The CSV, the report (TXT + PDF) and the plot PNG are saved automatically.
-7. **Save report again (optional)** — after the run the *Save report* button
+8. **Save report again (optional)** — after the run the *Save report* button
    becomes active. If information was missing or wrong during the run
    (operator name, DUT ID, transmit params, thermal offset, …), amend the
    fields in the GUI and click *Save report*: the verdict is re-evaluated and
@@ -129,6 +138,48 @@ The operator fields required by the standard — measurement uncertainty
 contact (≥ 37 °C for invasive use) — are entered in the *Test setup* tab and
 written into the report; if they were empty during the run, fill them in and
 press *Save report*. An empty field leaves a blank fill-in line in the report.
+The pre-contact temperature can be captured directly from the live monitor
+(procedure step 4).
+
+### How to determine the measurement uncertainty (201.11.1.3.104)
+
+Enter the **expanded uncertainty of the complete measuring chain**
+(thermocouple → 2000-SCAN card → DMM6500), e.g. `+/- 0.5 (k=2)` — the GUI
+appends the °C unit. The standard requires the uncertainty to be *stated*;
+it does not set a numeric limit.
+
+**Preferred — end-to-end calibration (traceable):** compare the complete
+chain (thermocouples connected through the scanner card to the DMM6500)
+against a calibrated reference thermometer in a stirred liquid bath at
+37–43 °C, and use the uncertainty stated in the calibration certificate.
+This is the most defensible value in an audit.
+
+**Alternative — uncertainty budget (GUM):** combine the main components by
+root-sum-square. Typical values for this setup:
+
+| Component | Typical contribution |
+|---|---|
+| Type-T thermocouple wire tolerance (IEC 60584-1, class 1) | ± 0.5 °C |
+| DMM6500 thermocouple measurement accuracy (instrument spec) | ≈ ± 0.2 °C |
+| Simulated cold-junction compensation — accuracy of the *Ambient temperature* entered in the GUI | ≈ ± 0.5 °C |
+| Scanner-card relay thermal EMF, noise | ≈ ± 0.1 °C |
+
+Root-sum-square ≈ ± 0.7 °C; **± 1.0 °C (k = 2)** is a conservative,
+defensible declaration without a bath calibration.
+
+Notes:
+
+- The **temperature-rise modes** (rise + offset ≤ 6 / 27 °C) are far less
+  sensitive: cold-junction and thermocouple systematic errors largely cancel
+  in *max − baseline*, leaving mainly noise and drift (± 0.1–0.2 °C typical).
+  The **peak mode (43 °C absolute)** carries the full absolute uncertainty
+  including the cold-junction error — this is the mode for which a bath
+  calibration matters most.
+- A conservative compliance decision compares *measured value + uncertainty*
+  against the limit: e.g. a 42.5 °C peak with ± 1.0 °C uncertainty gives
+  43.5 °C > 43 °C, which does **not** demonstrate compliance — reduce the
+  uncertainty (calibrate the chain) or state the decision rule used in the
+  report.
 
 ## 5. Pass/fail logic
 
@@ -187,8 +238,9 @@ Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-u
 
 `temp\selftest.py` exercises the verdict formulas, the test-label builder, the
 steady-state detector and a full accelerated end-to-end run using the
-application's own simulated instrument (swapped channel roles, CSV metadata,
-operating-settings block in the report, auto-stop on steady state, PDF report,
-re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.3).
+application's own simulated instrument (swapped channel roles, live monitor
+with pre-contact capture and no recording, CSV metadata, operating-settings
+block in the report, auto-stop on steady state, PDF report, re-save with
+amended fields). All checks pass as of 2026-06-09 (V1.3.4).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

@@ -134,6 +134,28 @@ app.tx_vars["fov"].set("90")
 app.tx_vars["focus_num"].set("1")
 app._on_focus_num_change()
 
+# ---- Live monitor: reads but records nothing --------------------------------
+app.start_monitor()
+check("monitor running", app.monitoring)
+t_end = time.time() + 5
+while app.last_monitor_temps is None and time.time() < t_end:
+    app.update()
+    time.sleep(0.02)
+check("monitor got a sample", app.last_monitor_temps is not None)
+check("monitor readout shows probe temperature",
+      app.readouts[3]["cur"]["text"] not in ("--.- C", "")
+      and app.readouts[3]["cur"]["text"].endswith("C"))
+app._capture_precontact()
+pre = app.precontact_var.get()
+check("pre-contact temp captured from probe (~37 C)",
+      pre != "" and 36.0 <= float(pre) <= 39.5)
+check("monitor recorded nothing", app.csv_path is None and not app.times)
+app.stop_monitor()
+check("monitor stopped", not app.monitoring)
+check("start while monitoring stops monitor cleanly",
+      str(app.monitor_btn["text"]) == "Monitor (no record)")
+app.precontact_var.set("")    # run the test with the field empty again
+
 app.start_test()
 check("test started", app.running)
 check("test label built", app.test_label == "B-PEN-D15-FOV90-FN1-1cm")

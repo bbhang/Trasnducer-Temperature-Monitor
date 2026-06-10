@@ -6,6 +6,23 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.4 — 2026-06-09
+
+- **Live monitor (no recording)**: new *Monitor (no record)* button starts a
+  live readout — no CSV, no statistics, no report — for the pre-run condition
+  checks: test-object temperature before contact (≥ 37 °C, method a) and the
+  23 ± 3 °C ambient. The probe readout shows a `pre-contact >= 37 C` hint,
+  the ambient readout the 23 ± 3 °C check. *→ DUT temp before contact*
+  copies the probe's live reading into the Test-setup field. Starting a test
+  stops the monitor automatically; each acquisition thread now owns its stop
+  event, so a finishing monitor read can never leak into a test run.
+- User Guide: new procedure step for the pre-contact check and a new section
+  *How to determine the measurement uncertainty (201.11.1.3.104)* —
+  end-to-end bath calibration vs. GUM budget, typical component values, and
+  the *measured value + uncertainty* decision rule.
+- `temp/selftest.py`: live-monitor checks (sample received, readout updated,
+  pre-contact capture, nothing recorded, clean stop).
+
 ## V1.3.3 — 2026-06-09
 
 - **Operator fields in the GUI** (*Test setup* tab): *Meas. uncertainty*
