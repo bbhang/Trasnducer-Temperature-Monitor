@@ -52,8 +52,11 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    - Test mode — choose per your test plan:
      - *Simulated use a) Peak temperature* — tissue-mimicking phantom preheated to
        ≥ 37 °C; limit: surface temperature ≤ **43 °C**.
-     - *Simulated use b) Temperature rise* — invasive limit: rise + thermal offset
-       ≤ **6 °C**.
+     - *Simulated use b) Temperature rise* (**default**) — invasive limit: rise +
+       thermal offset ≤ **6 °C**. The standard requires selecting either a) or b)
+       (201.11.1.3.101.1); method a) is mandatory only for equipment with a
+       closed-loop temperature monitoring system, which this system does not
+       have, so b) is the chosen method for this test program.
      - *Still air* — no coupling gel; limit: rise + thermal offset ≤ **27 °C**.
    - *Thermal offset* — known stable offset at thermal steady state (201.3.228);
      0.0 if none.
@@ -253,6 +256,6 @@ application's own simulated instrument (swapped channel roles, live monitor
 with pre-contact capture and no recording, CSV metadata, operating-settings
 block in the report, auto-stop on steady state, PDF report, re-save with
 amended fields, per-run output folder and re-save into a chosen folder).
-All checks pass as of 2026-06-10 (V1.3.7).
+All checks pass as of 2026-06-10 (V1.3.8).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

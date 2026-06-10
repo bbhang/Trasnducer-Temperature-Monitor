@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.7
+# Version : 1.3.8
 # Modified: 2026-06-10
-# Notes   : v1.3.7 - Per-run output folder: every test creates
-#           run_<stamp>_<label> under the configurable "Output folder"
-#           (new Test-setup field with Browse...) and writes CSV, report
-#           TXT/PDF and plot PNG into it. "Save report" now opens a
-#           folder-picker dialog (starting at the default output folder)
-#           to choose where the re-saved files go.
+# Notes   : v1.3.8 - Default test mode is now "Simulated use b) Temperature
+#           rise": the system has no closed-loop temperature monitoring, so
+#           IEC 60601-2-37 201.11.1.3.101.1 allows selecting a) or b), and
+#           b) is the method chosen for this test program. Method a) remains
+#           selectable.
 #           (Older notes: see CHANGELOG.md; Notes holds only the latest.)
 # =============================================================================
 """ICE Transducer Temperature Monitor.
@@ -55,7 +54,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.7"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.8"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -591,7 +590,10 @@ class App(tk.Tk):
         self.conn_status.pack(side="left", padx=8)
 
     def _build_config_panel(self, parent):
-        self.mode_var = tk.StringVar(value="peak")
+        # Default to method b) temperature rise: the system has no closed-loop
+        # temperature monitoring, so 201.11.1.3.101.1 allows a) or b) and b)
+        # is the chosen method for this test program.
+        self.mode_var = tk.StringVar(value="rise6")
         for key in ("peak", "rise6", "rise27"):
             m = TEST_MODES[key]
             ttk.Radiobutton(

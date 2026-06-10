@@ -6,6 +6,16 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.8 — 2026-06-10
+
+- **Default test mode is now *Simulated use b) Temperature rise***: the
+  system has no closed-loop temperature monitoring, so IEC 60601-2-37
+  201.11.1.3.101.1 allows selecting method a) or b) ("Test method a) or b)
+  specified below shall be selected"; a) is mandatory only for equipment
+  with closed-loop temperature monitoring). Method b) is the method chosen
+  for this test program; method a) remains selectable in the GUI.
+- `temp/selftest.py`: checks that the default test mode is `rise6`.
+
 ## V1.3.7 — 2026-06-10
 
 - **Per-run output folder**: every test creates `run_YYYYMMDD_HHMMSS_<label>`

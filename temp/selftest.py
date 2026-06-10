@@ -118,6 +118,8 @@ m.messagebox.askokcancel = lambda *a, **k: True
 
 app = m.App()
 app.withdraw()
+check("default test mode is rise6 (method b, no closed-loop monitoring)",
+      app.mode_var.get() == "rise6")
 app.ambient_combo.set("Channel 2 (T2)")
 app._on_ambient_change()
 check("roles: probe=ch3 ambient=ch2",
