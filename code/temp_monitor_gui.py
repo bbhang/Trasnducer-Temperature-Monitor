@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.4
+# Version : 1.3.5
 # Modified: 2026-06-09
-# Notes   : v1.3.4 - Live monitor ("Monitor (no record)"): reads and
+# Notes   : v1.3.5 - Mode list corrected: standalone C removed (C exists
+#           only combined with B): B/B+C/B+CW/B+PW/B+C+PW/B+C+CW.
+#           v1.3.4 - Live monitor ("Monitor (no record)"): reads and
 #           displays both channels without recording, for the pre-contact
 #           >= 37 C and ambient 23 +/- 3 C checks; "-> DUT temp before
 #           contact" captures the probe reading into the Test-setup field.
@@ -75,7 +77,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.4"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.5"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -127,7 +129,7 @@ TEST_MODES = {
 # V1.0.0.105919; presets from doc/Acoustic Safety Test Parameters.xlsx,
 # sheet 'Acoustic Test V1.0.0.105919'.
 CONSOLE_SW_DEFAULT = "V1.0.0.105919"
-CONSOLE_MODES = ("B", "C", "B+C", "B+CW", "B+PW", "B+C+PW", "B+C+CW")
+CONSOLE_MODES = ("B", "B+C", "B+CW", "B+PW", "B+C+PW", "B+C+CW")
 B_OPTS = ("PEN", "GEN", "GRES", "RES", "HPEN", "HRES")
 C_OPTS = ("PEN", "GEN")
 # Transmit frequency is fixed per Opt (column F of the parameter table).

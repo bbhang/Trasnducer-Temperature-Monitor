@@ -6,6 +6,11 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.5 — 2026-06-09
+
+- **Mode list corrected**: standalone C removed — the console offers C only
+  combined with B. Modes are now B, B+C, B+CW, B+PW, B+C+PW, B+C+CW.
+
 ## V1.3.4 — 2026-06-09
 
 - **Live monitor (no recording)**: new *Monitor (no record)* button starts a
