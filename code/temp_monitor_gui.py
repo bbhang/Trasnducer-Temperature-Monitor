@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.2
+# Version : 1.3.3
 # Modified: 2026-06-09
-# Notes   : v1.3.2 - Plot legend: limit line shows the numeric limit value
+# Notes   : v1.3.3 - New Test-setup fields "Meas. uncertainty"
+#           (201.11.1.3.104) and "DUT temp before contact" replace the
+#           report's blank fill-in lines; values go into the report and
+#           CSV metadata.
+#           v1.3.2 - Plot legend: limit line shows the numeric limit value
 #           with the cited IEC clause on a second line.
 #           v1.3.1 - "Save report" button: enabled after a run ends; amend
 #           the UI fields and save again (verdict re-evaluated, files keep
@@ -65,7 +69,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.2"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.3"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -657,6 +661,22 @@ class App(tk.Tk):
         self.dut_var = tk.StringVar()
         ttk.Entry(meta, textvariable=self.dut_var, width=20).grid(
             row=1, column=1, sticky="w", padx=4)
+        # Operator fields required by the standard; may be filled after the
+        # run and saved into the report with the "Save report" button.
+        ttk.Label(meta, text="Meas. uncertainty").grid(row=2, column=0,
+                                                       sticky="w")
+        self.uncert_var = tk.StringVar()
+        ttk.Entry(meta, textvariable=self.uncert_var, width=20).grid(
+            row=2, column=1, sticky="w", padx=4)
+        ttk.Label(meta, text="C  (201.11.1.3.104)").grid(row=2, column=2,
+                                                         sticky="w")
+        ttk.Label(meta, text="DUT temp before contact").grid(row=3, column=0,
+                                                             sticky="w")
+        self.precontact_var = tk.StringVar()
+        ttk.Entry(meta, textvariable=self.precontact_var, width=20).grid(
+            row=3, column=1, sticky="w", padx=4)
+        ttk.Label(meta, text="C  (>= 37, method a)").grid(row=3, column=2,
+                                                          sticky="w")
 
     def _build_transmit_panel(self, parent):
         ttk.Label(parent,
@@ -1085,6 +1105,8 @@ class App(tk.Tk):
             ("test_label", self.test_label),
             ("operator", self.operator_var.get()),
             ("catheter_id", self.dut_var.get()),
+            ("measurement_uncertainty_C", self.uncert_var.get().strip()),
+            ("dut_temp_before_contact_C", self.precontact_var.get().strip()),
             ("probe_channel", str(self.probe_ch)),
             ("ambient_channel", str(self.ambient_ch)),
             ("thermal_offset_C", f"{self.cfg_offset:g}"),
@@ -1402,6 +1424,10 @@ class App(tk.Tk):
             val = tx.get(key, "") or "(not entered)"
             return f"    {label:<21}: {val}{unit if tx.get(key) else ''}"
 
+        unc = self.uncert_var.get().strip()
+        pre = self.precontact_var.get().strip()
+        blank = "________  (fill in the GUI, then press 'Save report')"
+
         lines = [
             "=" * 72,
             "ICE TRANSDUCER SURFACE TEMPERATURE TEST REPORT",
@@ -1460,9 +1486,11 @@ class App(tk.Tk):
             f"(still-air test requires <= {AMBIENT_STABLE_BAND_C:.1f} C)",
             f"    Within 23 +/- 3 C    : {'yes' if amb_in_range else 'NO'}",
             "-" * 72,
-            "TO BE COMPLETED BY OPERATOR (required by the standard):",
-            "  Measurement uncertainty (201.11.1.3.104):                  ________",
-            "  Test object temperature before contact (>= 37 C, method a): _______",
+            "OPERATOR-ENTERED FIELDS (required by the standard):",
+            f"  Measurement uncertainty (201.11.1.3.104):                   "
+            f"{unc + ' C' if unc else blank}",
+            f"  Test object temperature before contact (>= 37 C, method a): "
+            f"{pre + ' C' if pre else blank}",
             "-" * 72,
             f"Data file : {self.csv_path}",
             f"Plot file : {png_path}",

@@ -6,6 +6,17 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.3 — 2026-06-09
+
+- **Operator fields in the GUI** (*Test setup* tab): *Meas. uncertainty*
+  (201.11.1.3.104) and *DUT temp before contact* (≥ 37 °C, method a) — the
+  report's former blank fill-in lines. Entered values are written into the
+  report and the CSV `#` metadata; left empty, the report keeps a blank line
+  pointing at the GUI + *Save report*. Typical flow: fill them after the run
+  and press *Save report*.
+- `temp/selftest.py`: re-save fills both fields and verifies them in the
+  report.
+
 ## V1.3.2 — 2026-06-09
 
 - **Plot legend**: the limit-line label now shows the actual limit value in

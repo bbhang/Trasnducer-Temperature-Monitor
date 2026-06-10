@@ -65,6 +65,10 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
      sections follow the selection.
    - *Sample interval* (default 1 s), *Max test duration* (default 30 min),
      thermocouple type, operator and catheter/DUT ID (stored in the report).
+   - *Meas. uncertainty* (201.11.1.3.104) and *DUT temp before contact*
+     (≥ 37 °C, method a) — operator fields required by the standard, written
+     into the report and the CSV metadata. They are usually known only after
+     the run: fill them in and press *Save report* (step 7).
 3. **Enter the console operating settings** (*Transmit params* tab,
    201.11.1.3.102) — set the ultrasound system to the operating mode that
    produces the **highest surface temperature** and record it here. Every
@@ -120,9 +124,11 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
 | `report_YYYYMMDD_HHMMSS_<label>.pdf` | PDF version of the report: page 1 the report text, page 2 the temperature plot |
 | `tempplot_YYYYMMDD_HHMMSS_<label>.png` | temperature curves with limit lines |
 
-After the run, complete the report's operator fields: measurement uncertainty
-(201.11.1.3.104) and — for method a) — the test-object temperature before
-contact (≥ 37 °C for invasive use).
+The operator fields required by the standard — measurement uncertainty
+(201.11.1.3.104) and, for method a), the test-object temperature before
+contact (≥ 37 °C for invasive use) — are entered in the *Test setup* tab and
+written into the report; if they were empty during the run, fill them in and
+press *Save report*. An empty field leaves a blank fill-in line in the report.
 
 ## 5. Pass/fail logic
 
@@ -183,6 +189,6 @@ Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-u
 steady-state detector and a full accelerated end-to-end run using the
 application's own simulated instrument (swapped channel roles, CSV metadata,
 operating-settings block in the report, auto-stop on steady state, PDF report,
-re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.2).
+re-save with amended fields). All checks pass as of 2026-06-09 (V1.3.3).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

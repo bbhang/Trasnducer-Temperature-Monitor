@@ -195,10 +195,14 @@ if reports:
           "Operating settings of the ultrasound console (201.11.1.3.102)" in rep)
     check("report lists F MHz", "4.5 MHz" in rep)
     check("report references PDF file", "PDF file" in rep)
+    check("report has blank operator fields before fill",
+          "fill in the GUI" in rep)
 
 # ---- Save report again with amended UI fields -------------------------------
 check("save button enabled after run", str(app.save_btn["state"]) == "normal")
 app.operator_var.set("selftest-amended")
+app.uncert_var.set("+/- 0.3")
+app.precontact_var.set("37.2")
 app.save_report()
 check("re-save popup shown", any(p[1] == "Report saved" for p in popups))
 if reports:
@@ -206,6 +210,10 @@ if reports:
         rep2 = f.read()
     check("re-saved report has amended operator", "selftest-amended" in rep2)
     check("re-saved report keeps verdict PASS", "Verdict          : PASS" in rep2)
+    check("re-saved report has measurement uncertainty", "+/- 0.3 C" in rep2)
+    check("re-saved report has pre-contact temperature", "37.2 C" in rep2)
+    check("re-saved report has no blank operator fields",
+          "fill in the GUI" not in rep2)
 
 app._on_close()
 
