@@ -1,12 +1,11 @@
 """Automated self-test for temp_monitor_gui.py (logic + end-to-end run).
 
-The application itself has no demo mode (V1.1.0); this script injects a stub
-instrument with an accelerated clock to exercise the full acquisition,
-steady-state, verdict and report pipeline without hardware.
+Drives the application's own SimulatedDmm demo instrument (x60 accelerated
+clock, V1.3.0) to exercise the full acquisition, steady-state, verdict and
+report pipeline without hardware.
 """
 import math
 import os
-import random
 import sys
 import time
 
@@ -21,27 +20,6 @@ def check(name, cond):
     print(("PASS  " if cond else "FAIL  ") + name)
     if not cond:
         fails.append(name)
-
-
-class StubDmm:
-    """Test-only instrument stub: exponential heating curves, fast clock."""
-
-    def __init__(self, params, time_scale=60.0):
-        self.params = params              # {channel: (base_C, rise_C, tau_s)}
-        self.time_scale = time_scale
-        self.idn = "STUB,FakeDMM6500,0,selftest"
-        self.t0 = time.monotonic()
-
-    def read_temps(self):
-        elapsed = (time.monotonic() - self.t0) * self.time_scale
-        out = {}
-        for c, (base, rise, tau) in self.params.items():
-            temp = base + rise * (1.0 - math.exp(-elapsed / tau))
-            out[c] = temp + random.gauss(0.0, 0.01)
-        return out
-
-    def close(self):
-        pass
 
 
 # ---- evaluate_channel ------------------------------------------------------
@@ -62,11 +40,34 @@ check("rise27 26.5+1=27.5 > 27 fails", not ok)
 label = m.build_test_label({"mode": "B", "opt": "PEN", "depth": "15",
                             "fov": "90", "focus_num": "1", "focus_area": "1cm"})
 check("label B-PEN-D15-FOV90-FN1-1cm", label == "B-PEN-D15-FOV90-FN1-1cm")
-label = m.build_test_label({"mode": "C+B", "opt": "PEN(C)+GEN(B)",
-                            "depth": "15", "fov": "90", "focus_num": "X",
+label = m.build_test_label({"mode": "B+C", "opt": "PEN(C)+GEN(B)",
+                            "depth": "15", "fov": "90", "focus_num": "1",
                             "focus_area": "0-1cm"})
 check("label sanitizes parentheses", "(" not in label and ")" not in label)
 check("label empty when no params", m.build_test_label({}) == "")
+
+# ---- auto_tx_params (console SW V1.0.0.105919 table) -----------------------
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "15")
+check("auto B/PEN/90: F 4.5, 2 pulses, FR 35.14, PRF 4182",
+      a == {"f_mhz": "4.5", "pulses": "2",
+            "frame_rate": "35.14", "prf": "4182"})
+a = m.auto_tx_params("B", "HRES", "PEN", "120", "1", "15")
+check("auto B/HRES/120: F 9, 1 pulse (harmonic), FR 11.62",
+      a == {"f_mhz": "9", "pulses": "1",
+            "frame_rate": "11.62", "prf": "4182"})
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "3", "15")
+check("auto B/PEN/90 3-focus: FR 11.71",
+      a["frame_rate"] == "11.71" and a["prf"] == "4182")
+a = m.auto_tx_params("B+C", "GEN", "PEN", "100", "1", "15")
+check("auto B+C PEN(C): F 4.5, 4 pulses, FR 14.6, PRF 10000",
+      a == {"f_mhz": "4.5", "pulses": "4",
+            "frame_rate": "14.6", "prf": "10000"})
+a = m.auto_tx_params("B+C", "GEN", "GEN", "120", "1", "15")
+check("auto B+C FOV120: FR/PRF not tabulated -> empty",
+      a["f_mhz"] == "4.8" and a["frame_rate"] == "" and a["prf"] == "")
+a = m.auto_tx_params("B", "PEN", "PEN", "90", "1", "10")
+check("auto depth != 15: FR/PRF empty",
+      a["frame_rate"] == "" and a["prf"] == "")
 
 # ---- SteadyStateDetector ---------------------------------------------------
 d = m.SteadyStateDetector()
@@ -90,7 +91,19 @@ check("detector: exponential becomes steady", d.steady)
 check("detector: steady time plausible (600-900 s)",
       steady_t is not None and 600 <= steady_t <= 900)
 
-# ---- End-to-end run with swapped channel roles -----------------------------
+# ---- SimulatedDmm demo instrument ------------------------------------------
+demo = m.SimulatedDmm()
+idn = demo.connect()
+check("demo IDN marks run as SIMULATED", idn.startswith("SIMULATED,"))
+temps = demo.read_temps()
+check("demo reads both channels", sorted(temps) == sorted(m.CHANNELS))
+demo.start_heating(probe_ch=3)
+t = demo.read_temps()
+check("demo probe ch3 hot, ch2 ambient", t[3] > 30.0 and t[2] < 26.0)
+check("demo clock accelerated x60", demo.time_scale == 60.0)
+demo.close()
+
+# ---- End-to-end demo run with swapped channel roles ------------------------
 # Ambient = channel 2, probe = channel 3 (channel 3 heats up).
 popups = []
 for fn in ("showinfo", "showerror", "showwarning"):
@@ -105,27 +118,30 @@ app._on_ambient_change()
 check("roles: probe=ch3 ambient=ch2",
       app.probe_ch == 3 and app.ambient_ch == 2)
 
-app.dmm = StubDmm({3: (37.0, 4.6, 300.0),   # probe: heats up, rise < 6 C
-                   2: (23.2, 0.15, 600.0)},  # ambient: nearly stable
-                  time_scale=60.0)
+app.dmm = m.SimulatedDmm()
+app.dmm.connect()
 app.interval_var.set("0.25")
 app.duration_var.set("30")
 app.mode_var.set("rise6")
 app.offset_var.set("0.0")
 app.operator_var.set("selftest")
 app.dut_var.set("DEMO-ICE-001")
-app.tx_vars["console_sw"].set("V1.0.0.105919")
 app.tx_vars["mode"].set("B")
-app.tx_vars["opt"].set("PEN")
+app._on_console_mode_change()
+app.tx_vars["b_opt"].set("PEN")
 app.tx_vars["depth"].set("15")
 app.tx_vars["fov"].set("90")
 app.tx_vars["focus_num"].set("1")
-app.tx_vars["focus_area"].set("1cm")
-app.tx_vars["f_mhz"].set("4.5")
+app._on_focus_num_change()
 
 app.start_test()
 check("test started", app.running)
 check("test label built", app.test_label == "B-PEN-D15-FOV90-FN1-1cm")
+check("F/pulses auto-filled into params",
+      app.tx_params["f_mhz"] == "4.5" and app.tx_params["pulses"] == "2")
+check("FR/PRF auto-filled into params",
+      app.tx_params["frame_rate"] == "35.14"
+      and app.tx_params["prf"] == "4182")
 
 t_end = time.time() + 60
 while app.running and time.time() < t_end:
@@ -165,14 +181,12 @@ if reports:
     print("\n----- report excerpt -----")
     print("\n".join(rep.splitlines()[:30]))
     check("report verdict PASS", "Verdict          : PASS" in rep)
+    check("report names SIMULATED instrument", "SIMULATED,DMM6500-DEMO" in rep)
     check("report swapped probe section", "T3 probe (channel 3" in rep)
     check("report swapped ambient section", "T2 ambient (channel 2" in rep)
     check("report has operating settings block",
           "Operating settings of the ultrasound console (201.11.1.3.102)" in rep)
-    check("report lists console SW", "V1.0.0.105919" in rep)
     check("report lists F MHz", "4.5 MHz" in rep)
-
-check("no SimulatedDmm in app module", not hasattr(m, "SimulatedDmm"))
 
 app._on_close()
 

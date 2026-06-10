@@ -6,6 +6,21 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.0 — 2026-06-09
+
+- **Simulated-test demo re-added**: the instrument list now offers
+  *Simulated DMM6500 (demo, no hardware)*, auto-selected when no VISA
+  instrument is found. The demo heats the selected probe channel along an
+  exponential curve (37 °C → ~41.6 °C, τ 300 s), keeps the ambient channel
+  near 23 °C and runs on a ×60 accelerated clock, so a 30-min test reaches
+  thermal steady state and finishes in ~30 s, exercising the full
+  acquisition/CSV/report/plot pipeline.
+- Demo runs are unambiguous in the records: `*IDN?` reports
+  `SIMULATED,DMM6500-DEMO,…` (shown in the report's Instrument line) and the
+  connection status turns orange.
+- `temp/selftest.py` now drives the application's own `SimulatedDmm` (its
+  private stub removed) and adds checks for the V1.2.0 auto-fill logic.
+
 ## V1.2.0 — 2026-06-09
 
 - **Transmit-params tab reworked for console SW V1.0.0.105919** (presets from

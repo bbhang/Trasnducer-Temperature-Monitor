@@ -41,6 +41,13 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    DMM6500** from the list, which shows each instrument as `model | address`.
    Click *Connect*; the `*IDN?` string appears in green. Connecting to anything
    that is not a DMM6500 is refused (so a scope is never accidentally `*RST`).
+   - **Demo without hardware:** the list always ends with *Simulated DMM6500
+     (demo, no hardware)* — auto-selected when no VISA instrument is found.
+     It simulates the probe heating from 37 °C to ~41.6 °C (ambient ~23 °C)
+     on a ×60 clock, so a 30-min test finishes in ~30 s, for training and
+     for verifying the CSV/report/plot pipeline. The connection status turns
+     orange and the report's Instrument line reads `SIMULATED,DMM6500-DEMO,…`
+     so a demo run can never be mistaken for a real measurement.
 2. **Configure the test** (*Test setup* tab):
    - Test mode — choose per your test plan:
      - *Simulated use a) Peak temperature* — tissue-mimicking phantom preheated to

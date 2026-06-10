@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.2.0
+# Version : 1.3.0
 # Modified: 2026-06-09
-# Notes   : v1.2.0 - Transmit-params tab reworked for console SW
-#           V1.0.0.105919 (sheet 'Acoustic Test V1.0.0.105919' of
-#           doc/Acoustic Safety Test Parameters.xlsx); older-version presets
-#           removed. Modes: B, C, B+C, B+CW, B+PW, B+C+PW, B+C+CW; modes
-#           containing both B and C show separate B-Opt and C-Opt selectors.
-#           B Opts: PEN/GEN/GRES/RES/HPEN/HRES; C Opts: PEN/GEN. Transmit
-#           frequency is fixed per Opt (B: PEN 4.5 / GEN 6.5 / GRES 6.5 /
-#           RES 8 / HPEN 8 / HRES 9 MHz; C: PEN 4.5 / GEN 4.8 MHz). Pulses#
-#           is fixed: B non-harmonic 2, harmonic (H*) 1, modes with C 4.
-#           Image depth is a 3-15 cm spinbox (validated at start), FOV is
-#           90/100/115/120, focus number is 1-4 with one position entry per
-#           focus. Frame rate and PRF auto-fill from the parameter table
-#           (15 cm depth) when the combination is tabulated, else stay
-#           editable.
-#           v1.1.0 - (1) Removed the SimulatedDmm demo mode from the
-#           application (an equivalent stub lives in temp/selftest.py for
-#           automated testing only). (2) Added an ambient-reference channel
-#           selector. (3) Added the "Transmit params" tab (201.11.1.3.102)
-#           with test label in filenames, CSV '#' metadata and report.
+# Notes   : v1.3.0 - Re-added a simulated-test demo: the instrument list now
+#           offers "Simulated DMM6500 (demo, no hardware)". The demo heats
+#           the selected probe channel along an exponential curve
+#           (37 C -> ~41.6 C, tau 300 s), keeps the ambient channel near
+#           23 C, and runs on a x60 accelerated clock so a 30-min test
+#           finishes in ~30 s, reaching thermal steady state and exercising
+#           the full acquisition/CSV/report/plot pipeline. The *IDN? string
+#           is 'SIMULATED,DMM6500-DEMO,...' so reports are unambiguous;
+#           connection status shows orange in demo mode. temp/selftest.py
+#           now drives this class directly.
+#           v1.2.0 - Transmit-params tab reworked for console SW
+#           V1.0.0.105919: modes B/C/B+C/B+CW/B+PW/B+C+PW/B+C+CW, separate
+#           B/C Opt selectors, fixed F and pulses# per Opt, depth 3-15 cm,
+#           FOV 90/100/115/120, focus number 1-4 with per-focus position
+#           entries, frame rate/PRF auto-fill from the parameter table.
+#           v1.1.0 - Ambient-reference channel selector; "Transmit params"
+#           tab (201.11.1.3.102) with test label in filenames, CSV '#'
+#           metadata and report.
 # =============================================================================
 """ICE Transducer Temperature Monitor.
 
@@ -44,8 +43,10 @@ Run:  python temp_monitor_gui.py
 """
 
 import csv
+import math
 import os
 import queue
+import random
 import re
 import threading
 import time
@@ -64,7 +65,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.2.0"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.0"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -82,6 +83,11 @@ STEADY_RATE_WINDOW_S = 60.0       # window used for the rate estimate
 OUTPUT_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "temp")
 )
+
+# Demo mode: a simulated DMM6500 selectable from the instrument list.
+DEMO_RESOURCE = "DEMO"
+DEMO_LABEL = "Simulated DMM6500  |  demo, no hardware"
+DEMO_TIME_SCALE = 60.0            # 1 real second = 60 simulated seconds
 
 TEST_MODES = {
     "peak": {
@@ -424,6 +430,53 @@ class Dmm6500:
                 idn = f"(no response: {exc.__class__.__name__})"
             out.append((res, idn))
         return out
+
+
+class SimulatedDmm:
+    """Demo instrument: no hardware, accelerated clock (x60).
+
+    The probe channel follows an exponential heating curve (37 C -> ~41.6 C,
+    tau 300 s) and the ambient channel stays near 23 C, so a full simulated
+    run reaches thermal steady state and PASSes every test mode. With the
+    x60 clock a 30-minute test completes in about 30 s of wall time. The
+    *IDN? string clearly marks the run as SIMULATED in the report.
+    """
+
+    def __init__(self, resource_name=DEMO_RESOURCE, tc_type=DEFAULT_TC_TYPE,
+                 channels=CHANNELS):
+        self.resource_name = resource_name
+        self.tc_type = tc_type
+        self.channels = channels
+        self.time_scale = DEMO_TIME_SCALE
+        self.idn = (f"SIMULATED,DMM6500-DEMO,0,"
+                    f"x{DEMO_TIME_SCALE:g}-clock (no hardware)")
+        self.t0 = None
+        self.params = {}              # {channel: (base_C, rise_C, tau_s)}
+
+    def connect(self):
+        self.start_heating(probe_ch=min(self.channels))
+        return self.idn
+
+    def start_heating(self, probe_ch):
+        """(Re)start the heating curves with `probe_ch` as the hot channel."""
+        for c in self.channels:
+            if c == probe_ch:
+                self.params[c] = (37.0, 4.6, 300.0)    # DUT surface
+            else:
+                self.params[c] = (23.2, 0.2, 600.0)    # ambient reference
+        self.t0 = time.monotonic()
+
+    def read_temps(self):
+        elapsed = (time.monotonic() - self.t0) * self.time_scale
+        out = {}
+        for c in self.channels:
+            base, rise, tau = self.params[c]
+            out[c] = (base + rise * (1.0 - math.exp(-elapsed / tau))
+                      + random.gauss(0.0, 0.01))
+        return out
+
+    def close(self):
+        self.t0 = None
 
 
 # ---------------------------------------------------------------------------
@@ -854,7 +907,8 @@ class App(tk.Tk):
             labels.append(label)
             if meter_label is None and Dmm6500.MODEL_KEYWORD in idn.upper():
                 meter_label = label
-        self.resource_combo["values"] = labels
+        self.resource_map[DEMO_LABEL] = DEMO_RESOURCE
+        self.resource_combo["values"] = labels + [DEMO_LABEL]
         if meter_label:
             self.resource_var.set(meter_label)
             self.conn_status.configure(
@@ -866,8 +920,10 @@ class App(tk.Tk):
                 text=f"{len(labels)} instrument(s) found, "
                      f"no {Dmm6500.MODEL_KEYWORD}", foreground="orange")
         else:
-            self.conn_status.configure(text="No VISA instruments found",
-                                       foreground="gray")
+            self.resource_var.set(DEMO_LABEL)
+            self.conn_status.configure(
+                text="No VISA instruments found - simulated demo selected",
+                foreground="gray")
 
     def _connect(self):
         if self.dmm is not None:
@@ -882,13 +938,18 @@ class App(tk.Tk):
         # raw addresses typed by the user pass through as-is.
         res = getattr(self, "resource_map", {}).get(sel, sel)
         try:
-            dmm = Dmm6500(res, tc_type=self.tc_var.get())
+            if res == DEMO_RESOURCE:
+                dmm = SimulatedDmm(tc_type=self.tc_var.get())
+            else:
+                dmm = Dmm6500(res, tc_type=self.tc_var.get())
             idn = dmm.connect()
         except Exception as exc:
             messagebox.showerror("Connection failed", str(exc))
             return
         self.dmm = dmm
-        self.conn_status.configure(text=idn[:60], foreground="green")
+        self.conn_status.configure(
+            text=idn[:60],
+            foreground="orange" if res == DEMO_RESOURCE else "green")
         self.connect_btn.configure(text="Disconnect")
         self.start_btn.configure(state="normal")
         self.status_label.configure(text="Connected. Configure the test and press "
@@ -956,6 +1017,8 @@ class App(tk.Tk):
             # cold-junction temperature (2000-SCAN card has no CJC sensor).
             if isinstance(self.dmm, Dmm6500):
                 self.dmm.set_sim_ref_junction(self.cfg_ambient)
+            elif isinstance(self.dmm, SimulatedDmm):
+                self.dmm.start_heating(self.probe_ch)
             first = self.dmm.read_temps()
         except Exception as exc:
             messagebox.showerror("Read failed", f"Could not read instrument:\n{exc}")
