@@ -6,6 +6,28 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.2.0 — 2026-06-09
+
+- **Transmit-params tab reworked for console SW V1.0.0.105919** (presets from
+  sheet `Acoustic Test V1.0.0.105919` of
+  `doc/Acoustic Safety Test Parameters.xlsx`); presets of older console
+  versions removed.
+- **Modes**: B, C, B+C, B+CW, B+PW, B+C+PW, B+C+CW. Modes containing B show a
+  *B Opt* selector (PEN/GEN/GRES/RES/HPEN/HRES — HGEN/HGRES1/HGRES2 no longer
+  exist); modes containing C additionally show a *C Opt* selector (PEN/GEN
+  only), e.g. B+C records `PEN(C)+GEN(B)`.
+- **Fixed parameters auto-fill**: transmit frequency follows the Opt (B: PEN
+  4.5 / GEN 6.5 / GRES 6.5 / RES 8 / HPEN 8 / HRES 9 MHz; C: PEN 4.5 /
+  GEN 4.8 MHz); Pulses# is 2 for non-harmonic B, 1 for harmonic (H*) Opts,
+  4 for modes with C. Both fields are read-only.
+- **Image depth** is now a 3–15 cm spinbox, validated when the test starts.
+  **FOV** choices are 90/100/115/120.
+- **Focus number** 1–4; one focus-position entry box appears per focus, and
+  the positions are recorded as the focus area (e.g. `1,2,3cm`).
+- **Frame rate / PRF auto-fill** from the parameter table (15 cm depth) when
+  the selected combination is tabulated; otherwise the fields stay empty and
+  editable.
+
 ## V1.1.0 — 2026-06-09
 
 - **Removed demo mode** (`SimulatedDmm`) from the application; an equivalent

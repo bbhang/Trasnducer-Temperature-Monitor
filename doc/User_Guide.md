@@ -62,12 +62,20 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    201.11.1.3.102) — set the ultrasound system to the operating mode that
    produces the **highest surface temperature** and record it here. Every
    console mode must be tested in its own run:
-   - *Mode*: B, C, C+B, PW, CW. *Opt* presets follow the mode — B: PEN, GEN,
-     GRES, RES, HPEN, HGEN, HGRES1, HGRES2, HRES; C: PEN, GEN and combined
-     presets such as PEN(C)+GEN(B). All fields remain editable free text.
-   - *Image depth (cm)*, *FOV (deg)*, *Focus number* (1/2/3/4/X), *Focus
-     area* (e.g. 1cm, 1,2cm, 0-1cm), *Line density*, *F (MHz)*, *Pulses #*,
-     *Frame rate*, *PRF*, *Console SW version*.
+   - *Mode*: B, C, B+C, B+CW, B+PW, B+C+PW, B+C+CW (console SW
+     V1.0.0.105919). Modes containing B show a *B Opt* selector (PEN, GEN,
+     GRES, RES, HPEN, HRES); modes containing C also show a *C Opt* selector
+     (PEN, GEN). A B+C run is recorded as e.g. `PEN(C)+GEN(B)`.
+   - *F (MHz)* and *Pulses #* are fixed and fill automatically: frequency
+     follows the Opt (B: PEN 4.5 / GEN 6.5 / GRES 6.5 / RES 8 / HPEN 8 /
+     HRES 9 MHz; C: PEN 4.5 / GEN 4.8 MHz); pulses are 2 for non-harmonic B,
+     1 for harmonic (H*) Opts, 4 for modes with C.
+   - *Image depth* (3–15 cm), *FOV* (90/100/115/120 deg), *Focus number*
+     (1–4) with **one focus-position box per focus** (recorded as the focus
+     area, e.g. `1,2,3cm`), *Line density*, *Console SW version*.
+   - *Frame rate* and *PRF* fill automatically when the combination exists
+     in `doc/Acoustic Safety Test Parameters.xlsx` (15 cm depth); otherwise
+     enter them manually.
    - The tab shows the resulting **test label** (e.g.
      `B-PEN-D15-FOV90-FN1-1cm`); it is appended to all output filenames so
      each mode's run is identifiable.

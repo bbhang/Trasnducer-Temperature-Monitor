@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.1.0
+# Version : 1.2.0
 # Modified: 2026-06-09
-# Notes   : v1.1.0 - (1) Removed the SimulatedDmm demo mode from the
+# Notes   : v1.2.0 - Transmit-params tab reworked for console SW
+#           V1.0.0.105919 (sheet 'Acoustic Test V1.0.0.105919' of
+#           doc/Acoustic Safety Test Parameters.xlsx); older-version presets
+#           removed. Modes: B, C, B+C, B+CW, B+PW, B+C+PW, B+C+CW; modes
+#           containing both B and C show separate B-Opt and C-Opt selectors.
+#           B Opts: PEN/GEN/GRES/RES/HPEN/HRES; C Opts: PEN/GEN. Transmit
+#           frequency is fixed per Opt (B: PEN 4.5 / GEN 6.5 / GRES 6.5 /
+#           RES 8 / HPEN 8 / HRES 9 MHz; C: PEN 4.5 / GEN 4.8 MHz). Pulses#
+#           is fixed: B non-harmonic 2, harmonic (H*) 1, modes with C 4.
+#           Image depth is a 3-15 cm spinbox (validated at start), FOV is
+#           90/100/115/120, focus number is 1-4 with one position entry per
+#           focus. Frame rate and PRF auto-fill from the parameter table
+#           (15 cm depth) when the combination is tabulated, else stay
+#           editable.
+#           v1.1.0 - (1) Removed the SimulatedDmm demo mode from the
 #           application (an equivalent stub lives in temp/selftest.py for
 #           automated testing only). (2) Added an ambient-reference channel
-#           selector: the operator chooses whether channel 2 or channel 3 is
-#           the ambient TC; the other channel becomes the probe (DUT) channel
-#           evaluated against the IEC limits. All labels, plot colors, CSV
-#           columns and report sections follow the selection. (3) Added a
-#           "Transmit params" tab recording the ultrasound console operating
-#           settings required by 201.11.1.3.102: console SW version, mode
-#           (B/C/C+B/PW/CW), Opt (PEN/GEN/GRES/RES/HPEN/HGEN/HGRES1/HGRES2/
-#           HRES for B; PEN/GEN and combos for C), image depth, FOV, focus
-#           number, focus area, line density, F, pulses#, frame rate, PRF
-#           (presets from doc/Acoustic Safety Test Parameters.xlsx). The
-#           settings build a test label (e.g. B-PEN-D15-FOV90-FN1-1cm) that is
-#           appended to the CSV/report/PNG filenames, written as '#' metadata
-#           lines at the top of the CSV, and listed in the report's
-#           "Operating settings" block.
+#           selector. (3) Added the "Transmit params" tab (201.11.1.3.102)
+#           with test label in filenames, CSV '#' metadata and report.
 # =============================================================================
 """ICE Transducer Temperature Monitor.
 
@@ -62,7 +64,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.1.0"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.2.0"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -105,24 +107,102 @@ TEST_MODES = {
     },
 }
 
-# Ultrasound console operating settings (201.11.1.3.102). Presets taken from
-# doc/Acoustic Safety Test Parameters.xlsx; every combobox stays editable so
-# values outside the presets can be typed.
-CONSOLE_MODES = ("B", "C", "C+B", "PW", "CW")
-CONSOLE_OPTS = {
-    "B": ("PEN", "GEN", "GRES", "RES", "HPEN", "HGEN", "HGRES1", "HGRES2",
-          "HRES"),
-    "C": ("PEN", "GEN", "PEN(C)+GEN(B)", "GEN(C)+GEN(B)", "PEN(C)+PEN(B)",
-          "GEN(C)+PEN(B)"),
-    "C+B": ("PEN(C)+GEN(B)", "GEN(C)+GEN(B)", "PEN(C)+HRES(B)",
-            "GEN(C)+HRES(B)"),
-    "PW": ("GEN",),
-    "CW": ("GEN",),
+# Ultrasound console operating settings (201.11.1.3.102) for console SW
+# V1.0.0.105919; presets from doc/Acoustic Safety Test Parameters.xlsx,
+# sheet 'Acoustic Test V1.0.0.105919'.
+CONSOLE_SW_DEFAULT = "V1.0.0.105919"
+CONSOLE_MODES = ("B", "C", "B+C", "B+CW", "B+PW", "B+C+PW", "B+C+CW")
+B_OPTS = ("PEN", "GEN", "GRES", "RES", "HPEN", "HRES")
+C_OPTS = ("PEN", "GEN")
+# Transmit frequency is fixed per Opt (column F of the parameter table).
+B_FREQ_MHZ = {"PEN": "4.5", "GEN": "6.5", "GRES": "6.5", "RES": "8",
+              "HPEN": "8", "HRES": "9"}
+C_FREQ_MHZ = {"PEN": "4.5", "GEN": "4.8"}
+DEPTH_MIN_CM = 3.0
+DEPTH_MAX_CM = 15.0
+FOV_PRESETS_DEG = ("90", "100", "115", "120")
+MAX_FOCUS_NUM = 4
+
+# Frame rate / PRF presets (image depth 15 cm). Combinations missing from the
+# parameter table leave the fields empty for manual entry.
+# B mode, single focus: (b_opt, fov) -> (frame_rate_Hz, prf_Hz)
+B_FRAME_PRF = {
+    ("PEN", "90"): ("35.14", "4182"),
+    ("GEN", "90"): ("35.14", "4182"),
+    ("GRES", "90"): ("35.14", "4182"),
+    ("RES", "90"): ("31.21", "4182"),
+    ("HPEN", "90"): ("15.15", "4182"),
+    ("HRES", "90"): ("15.15", "4182"),
+    ("PEN", "100"): ("31.68", "4182"),
+    ("GEN", "100"): ("31.68", "4182"),
+    ("GRES", "100"): ("31.68", "4182"),
+    ("RES", "100"): ("28.26", "4182"),
+    ("HPEN", "100"): ("13.76", "4182"),
+    ("HRES", "100"): ("13.76", "4182"),
+    ("PEN", "115"): ("27.7", "4182"),
+    ("GEN", "115"): ("27.7", "4182"),
+    ("GRES", "115"): ("27.7", "4182"),
+    ("RES", "115"): ("24.6", "4182"),
+    ("HPEN", "115"): ("12.02", "4182"),
+    ("HRES", "115"): ("12.02", "4182"),
+    ("PEN", "120"): ("26.64", "4182"),
+    ("GEN", "120"): ("26.64", "4182"),
+    ("GRES", "120"): ("26.64", "4182"),
+    ("RES", "120"): ("23.76", "4182"),
+    ("HPEN", "120"): ("11.62", "4182"),
+    ("HRES", "120"): ("11.62", "4182"),
 }
-DEPTH_PRESETS_CM = ("1.5", "10", "15")
-FOV_PRESETS_DEG = ("20", "90", "100", "115", "120")
-FOCUS_NUMBER_PRESETS = ("1", "2", "3", "4", "X")
-FOCUS_AREA_PRESETS = ("1cm", "1,2cm", "1,2,3cm", "0-1cm", "0-15cm")
+# B mode PEN @ FOV 90 with multiple foci: focus_num -> (frame_rate, prf)
+B_MULTIFOCUS_FRAME_PRF = {
+    ("PEN", "90", "2"): ("17.57", "4182"),
+    ("PEN", "90", "3"): ("11.71", "4182"),
+    ("PEN", "90", "4"): ("8.786", "4182"),
+}
+# B+C: (c_opt, fov) -> (frame_rate, prf); table only covers FOV 90 and 100.
+BC_FRAME_PRF = {
+    ("PEN", "90"): ("14.6", "10000"),
+    ("GEN", "90"): ("14.6", "10000"),
+    ("PEN", "100"): ("14.6", "10000"),
+    ("GEN", "100"): ("14.6", "10000"),
+}
+
+
+def mode_tokens(mode):
+    """'B+C+PW' -> ['B', 'C', 'PW']."""
+    return [t for t in mode.split("+") if t]
+
+
+def auto_tx_params(mode, b_opt, c_opt, fov, focus_num, depth):
+    """Derive the fixed/auto transmit parameters for a mode selection.
+
+    Returns {'f_mhz', 'pulses', 'frame_rate', 'prf'} as strings; empty when
+    the combination is not covered by the parameter table.
+      - F is fixed per Opt (C frequency when a C mode is active, as in the
+        table's combined-mode rows).
+      - Pulses#: B non-harmonic = 2, harmonic (H*) = 1; modes with C = 4.
+      - Frame rate / PRF only auto-fill at 15 cm depth, where the table has
+        measured values.
+    """
+    toks = mode_tokens(mode)
+    out = {"f_mhz": "", "pulses": "", "frame_rate": "", "prf": ""}
+    if "C" in toks:
+        out["f_mhz"] = C_FREQ_MHZ.get(c_opt, "")
+        out["pulses"] = "4"
+    elif "B" in toks:
+        out["f_mhz"] = B_FREQ_MHZ.get(b_opt, "")
+        out["pulses"] = "1" if b_opt.startswith("H") else "2"
+    fr_prf = None
+    if depth == "15":
+        if mode == "B":
+            if focus_num == "1":
+                fr_prf = B_FRAME_PRF.get((b_opt, fov))
+            else:
+                fr_prf = B_MULTIFOCUS_FRAME_PRF.get((b_opt, fov, focus_num))
+        elif mode == "B+C":
+            fr_prf = BC_FRAME_PRF.get((c_opt, fov))
+    if fr_prf:
+        out["frame_rate"], out["prf"] = fr_prf
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +234,7 @@ def build_test_label(params):
     if params.get("mode"):
         parts.append(params["mode"])
     if params.get("opt"):
-        parts.append(params["opt"])
+        parts.append(params["opt"].replace("(", "").replace(")", ""))
     if params.get("depth"):
         parts.append(f"D{params['depth']}")
     if params.get("fov"):
@@ -528,70 +608,160 @@ class App(tk.Tk):
     def _build_transmit_panel(self, parent):
         ttk.Label(parent,
                   text="Ultrasound console operating settings "
-                       "(201.11.1.3.102).\nRecorded in the report, the CSV "
-                       "header and the output file names.",
+                       "(201.11.1.3.102).\nPresets: Acoustic Test "
+                       f"{CONSOLE_SW_DEFAULT}. Recorded in the report,\n"
+                       "the CSV header and the output file names.",
                   foreground="gray").pack(anchor="w", pady=(0, 6))
 
         grid = ttk.Frame(parent)
         grid.pack(fill="x")
         self.tx_vars = {}
+        self._tx_rows = {}            # key -> [widgets] for show/hide
 
         def combo_row(r, label, key, values, default="", width=16,
-                      readonly=False, command=None):
-            ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w", pady=1)
+                      command=None):
+            lab = ttk.Label(grid, text=label)
+            lab.grid(row=r, column=0, sticky="w", pady=1)
             var = tk.StringVar(value=default)
-            cb = ttk.Combobox(grid, textvariable=var, values=values, width=width,
-                              state="readonly" if readonly else "normal")
+            cb = ttk.Combobox(grid, textvariable=var, values=values,
+                              width=width, state="readonly")
             cb.grid(row=r, column=1, sticky="w", padx=4, pady=1)
             if command:
                 cb.bind("<<ComboboxSelected>>", command)
             self.tx_vars[key] = var
+            self._tx_rows[key] = [lab, cb]
             return cb
 
-        def entry_row(r, label, key, default="", width=18, unit=""):
-            ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w", pady=1)
+        def entry_row(r, label, key, default="", width=18, unit="",
+                      readonly=False):
+            lab = ttk.Label(grid, text=label)
+            lab.grid(row=r, column=0, sticky="w", pady=1)
             var = tk.StringVar(value=default)
-            ttk.Entry(grid, textvariable=var, width=width).grid(
-                row=r, column=1, sticky="w", padx=4, pady=1)
+            ent = ttk.Entry(grid, textvariable=var, width=width,
+                            state="readonly" if readonly else "normal")
+            ent.grid(row=r, column=1, sticky="w", padx=4, pady=1)
+            widgets = [lab, ent]
             if unit:
-                ttk.Label(grid, text=unit).grid(row=r, column=2, sticky="w")
+                u = ttk.Label(grid, text=unit)
+                u.grid(row=r, column=2, sticky="w")
+                widgets.append(u)
             self.tx_vars[key] = var
+            self._tx_rows[key] = widgets
 
         entry_row(0, "Console SW version", "console_sw",
-                  default="", width=18)
+                  default=CONSOLE_SW_DEFAULT, width=18)
         combo_row(1, "Mode", "mode", CONSOLE_MODES, default="B",
-                  readonly=True, command=self._on_console_mode_change)
-        self.opt_combo = combo_row(2, "Opt (image preset)", "opt",
-                                   CONSOLE_OPTS["B"], default="PEN")
-        combo_row(3, "Image depth (cm)", "depth", DEPTH_PRESETS_CM,
-                  default="15", width=8)
-        combo_row(4, "FOV (deg)", "fov", FOV_PRESETS_DEG, default="90",
+                  command=self._on_console_mode_change)
+        combo_row(2, "B Opt (image preset)", "b_opt", B_OPTS, default="PEN")
+        combo_row(3, "C Opt", "c_opt", C_OPTS, default="PEN")
+
+        lab = ttk.Label(grid, text="Image depth (cm)")
+        lab.grid(row=4, column=0, sticky="w", pady=1)
+        self.tx_vars["depth"] = tk.StringVar(value="15")
+        depth_spin = ttk.Spinbox(grid, textvariable=self.tx_vars["depth"],
+                                 from_=DEPTH_MIN_CM, to=DEPTH_MAX_CM,
+                                 increment=1, width=7)
+        depth_spin.grid(row=4, column=1, sticky="w", padx=4, pady=1)
+        ttk.Label(grid, text=f"({DEPTH_MIN_CM:g}-{DEPTH_MAX_CM:g})").grid(
+            row=4, column=2, sticky="w")
+        self._tx_rows["depth"] = [lab, depth_spin]
+
+        combo_row(5, "FOV (deg)", "fov", FOV_PRESETS_DEG, default="90",
                   width=8)
-        combo_row(5, "Focus number", "focus_num", FOCUS_NUMBER_PRESETS,
-                  default="1", width=8)
-        combo_row(6, "Focus area", "focus_area", FOCUS_AREA_PRESETS,
-                  default="1cm", width=10)
-        entry_row(7, "Line density", "line_density", default="UH", width=8)
-        entry_row(8, "F (MHz)", "f_mhz", width=8)
-        entry_row(9, "Pulses #", "pulses", width=8)
-        entry_row(10, "Frame rate (Hz)", "frame_rate", width=8)
-        entry_row(11, "PRF (Hz)", "prf", width=8)
+        combo_row(6, "Focus number", "focus_num",
+                  tuple(str(n) for n in range(1, MAX_FOCUS_NUM + 1)),
+                  default="1", width=8, command=self._on_focus_num_change)
+
+        # One position entry per focus; entries beyond the selected focus
+        # number are hidden.
+        lab = ttk.Label(grid, text="Focus pos. (cm)")
+        lab.grid(row=7, column=0, sticky="w", pady=1)
+        focus_frm = ttk.Frame(grid)
+        focus_frm.grid(row=7, column=1, columnspan=2, sticky="w", padx=4)
+        self._focus_entries = []
+        for i in range(MAX_FOCUS_NUM):
+            var = tk.StringVar(value=str(i + 1))
+            ent = ttk.Entry(focus_frm, textvariable=var, width=5)
+            ent.grid(row=0, column=i, padx=(0, 3))
+            self._focus_entries.append((ent, var))
+            var.trace_add("write", lambda *_: self._update_label_preview())
+
+        entry_row(8, "Line density", "line_density", default="UH", width=8)
+        entry_row(9, "F (MHz)", "f_mhz", width=8, unit="(fixed per Opt)",
+                  readonly=True)
+        entry_row(10, "Pulses #", "pulses", width=8, unit="(fixed per mode)",
+                  readonly=True)
+        entry_row(11, "Frame rate (Hz)", "frame_rate", width=8,
+                  unit="(auto if tabulated)")
+        entry_row(12, "PRF (Hz)", "prf", width=8, unit="(auto if tabulated)")
 
         self.tx_label_preview = ttk.Label(parent, text="", foreground="gray")
         self.tx_label_preview.pack(anchor="w", pady=(6, 0))
         for var in self.tx_vars.values():
             var.trace_add("write", lambda *_: self._update_label_preview())
-        self._update_label_preview()
+        for key in ("mode", "b_opt", "c_opt", "fov", "focus_num", "depth"):
+            self.tx_vars[key].trace_add("write",
+                                        lambda *_: self._update_tx_auto())
+        self._on_console_mode_change()
+        self._on_focus_num_change()
+
+    def _set_tx_row_visible(self, key, visible):
+        for w in self._tx_rows[key]:
+            if visible:
+                w.grid()
+            else:
+                w.grid_remove()
 
     def _on_console_mode_change(self, _event=None):
-        mode = self.tx_vars["mode"].get()
-        opts = CONSOLE_OPTS.get(mode, ())
-        self.opt_combo["values"] = opts
-        if opts and self.tx_vars["opt"].get() not in opts:
-            self.tx_vars["opt"].set(opts[0])
+        toks = mode_tokens(self.tx_vars["mode"].get())
+        self._set_tx_row_visible("b_opt", "B" in toks)
+        self._set_tx_row_visible("c_opt", "C" in toks)
+        self._update_tx_auto()
+
+    def _on_focus_num_change(self, _event=None):
+        try:
+            n = int(self.tx_vars["focus_num"].get())
+        except ValueError:
+            n = 1
+        for i, (ent, _var) in enumerate(self._focus_entries):
+            if i < n:
+                ent.grid()
+            else:
+                ent.grid_remove()
+        self._update_label_preview()
+
+    def _update_tx_auto(self):
+        """Auto-fill F, pulses#, frame rate and PRF from the selection."""
+        auto = auto_tx_params(
+            self.tx_vars["mode"].get(), self.tx_vars["b_opt"].get(),
+            self.tx_vars["c_opt"].get(), self.tx_vars["fov"].get(),
+            self.tx_vars["focus_num"].get(),
+            self.tx_vars["depth"].get().strip())
+        for key in ("f_mhz", "pulses", "frame_rate", "prf"):
+            if self.tx_vars[key].get() != auto[key]:
+                self.tx_vars[key].set(auto[key])
 
     def _collect_tx_params(self):
-        return {k: v.get().strip() for k, v in self.tx_vars.items()}
+        params = {k: v.get().strip() for k, v in self.tx_vars.items()}
+        toks = mode_tokens(params["mode"])
+        has_b, has_c = "B" in toks, "C" in toks
+        if has_b and has_c:
+            opt = f"{params['c_opt']}(C)+{params['b_opt']}(B)"
+        elif has_c:
+            opt = params["c_opt"]
+        elif has_b:
+            opt = params["b_opt"]
+        else:
+            opt = ""
+        params["opt"] = opt
+        try:
+            n = int(params["focus_num"])
+        except ValueError:
+            n = 1
+        pos = [v.get().strip() for _e, v in self._focus_entries[:n]]
+        pos = [p for p in pos if p]
+        params["focus_area"] = ",".join(pos) + "cm" if pos else ""
+        return params
 
     def _update_label_preview(self):
         label = build_test_label(self._collect_tx_params())
@@ -768,6 +938,17 @@ class App(tk.Tk):
             return
         self._on_ambient_change()             # lock in the channel roles
         self.tx_params = self._collect_tx_params()
+        depth_txt = self.tx_params.get("depth", "")
+        try:
+            depth_ok = DEPTH_MIN_CM <= float(depth_txt) <= DEPTH_MAX_CM
+        except ValueError:
+            depth_ok = False
+        if not depth_ok:
+            messagebox.showerror(
+                "Invalid configuration",
+                f"Image depth must be {DEPTH_MIN_CM:g}-{DEPTH_MAX_CM:g} cm "
+                f"(entered: {depth_txt or '(empty)'}).")
+            return
         self.test_label = build_test_label(self.tx_params)
 
         try:
