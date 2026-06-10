@@ -6,6 +6,13 @@ Version is bumped on every update; the same version is set in
 test report, mirrored in the module docstring "Latest update notes", and tagged
 in git (`vX.Y.Z`).
 
+## V1.0.1 — 2026-06-09
+
+- Rework the `temp_monitor_gui.py` file header into the standard comment-block
+  format (`Project / Version / Modified / Notes`); the Notes field carries the
+  latest update description and is rewritten on every version bump.
+- No functional changes.
+
 ## V1.0.0 — 2026-06-09
 
 Initial release.

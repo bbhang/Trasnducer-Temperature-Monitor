@@ -1,13 +1,15 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Project : ICE Transducer Temperature Monitor
+# Version : 1.0.1
+# Modified: 2026-06-09
+# Notes   : v1.0.1 - Rework the file header into the standard comment-block
+#           format (Project/Version/Modified/Notes); the Notes field now
+#           carries the latest update description and is rewritten on every
+#           version bump (full history in CHANGELOG.md). No functional
+#           changes to acquisition or pass/fail logic.
+# =============================================================================
 """ICE Transducer Temperature Monitor.
-
-Version: 1.0.0
-Latest update notes (V1.0.0, 2026-06-09):
-  - Initial release: DMM6500 USB auto-detection (*IDN? scan, model check,
-    TERMINALS switch check), T2 probe on channel 2 evaluated against
-    IEC 60601-2-37:2024 limits, T3 ambient on channel 3 recorded as test
-    condition (23 +/- 3 C, drift), drift tracking on both channels,
-    steady-state auto-stop, demo mode, CSV/report/PNG output.
-(full history in CHANGELOG.md)
 
 Acquires temperatures from two thermocouple probes (T2, T3) connected to
 channels 2 and 3 of a Keithley DMM6500 (rear-panel scanner card, USB/VISA)
@@ -48,7 +50,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.0.0"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.0.1"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels for T2, T3
 PROBE_CH = 2                      # T2: transducer surface (device under test)
