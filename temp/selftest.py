@@ -2,7 +2,8 @@
 
 Drives the application's own SimulatedDmm demo instrument (x60 accelerated
 clock) to exercise the full acquisition, steady-state, verdict and report
-pipeline (TXT + PDF + re-save + live monitor, V1.3.1-V1.3.6) without hardware.
+pipeline (TXT + PDF + re-save + live monitor + per-run output folder,
+V1.3.1-V1.3.7) without hardware.
 """
 import math
 import os
@@ -180,6 +181,16 @@ check("auto-stop on T3 probe steady state",
       "T3" in app.stop_reason and "steady state" in app.stop_reason)
 check("samples collected (>40)", len(app.times) > 40)
 
+# ---- Per-run output folder ---------------------------------------------------
+out_dir = app.run_dir
+check("run folder created", bool(out_dir) and os.path.isdir(out_dir))
+check("run folder under default output folder",
+      os.path.dirname(out_dir) == m.OUTPUT_DIR)
+check("run folder name carries label",
+      os.path.basename(out_dir).startswith("run_")
+      and "B-PEN-D15-FOV90-FN1-1cm" in os.path.basename(out_dir))
+check("CSV inside run folder", os.path.dirname(app.csv_path) == out_dir)
+
 check("CSV filename carries label",
       app.csv_path and "B-PEN-D15-FOV90-FN1-1cm" in os.path.basename(app.csv_path))
 csv_ok = app.csv_path and os.path.isfile(app.csv_path)
@@ -193,7 +204,6 @@ if csv_ok:
     check("CSV header swapped roles",
           "T3_probe_C (ch3)" in csv_text and "T2_ambient_C (ch2)" in csv_text)
 
-out_dir = m.OUTPUT_DIR
 reports = sorted(f for f in os.listdir(out_dir)
                  if f.startswith("report_") and f.endswith(".txt"))
 pdfs = sorted(f for f in os.listdir(out_dir)
@@ -226,12 +236,24 @@ if reports:
           "fill in the GUI" in rep)
 
 # ---- Save report again with amended UI fields -------------------------------
+# The Save button opens a folder picker; stub it to a fresh subfolder so the
+# re-save also proves saving into a different, not-yet-existing directory.
+resave_dir = os.path.join(out_dir, "resaved")
+m.filedialog.askdirectory = lambda **k: resave_dir
 check("save button enabled after run", str(app.save_btn["state"]) == "normal")
 app.operator_var.set("selftest-amended")
 app.uncert_var.set("+/- 0.3")
 app.precontact_var.set("37.2")
 app.save_report()
 check("re-save popup shown", any(p[1] == "Report saved" for p in popups))
+check("re-save created chosen folder", os.path.isdir(resave_dir))
+reports2 = sorted(f for f in os.listdir(resave_dir)
+                  if f.startswith("report_") and f.endswith(".txt"))
+check("re-saved report in chosen folder", bool(reports2))
+check("re-saved PDF in chosen folder",
+      any(f.endswith(".pdf") for f in os.listdir(resave_dir)))
+out_dir = resave_dir
+reports = reports2
 if reports:
     with open(os.path.join(out_dir, reports[-1]), encoding="utf-8") as f:
         rep2 = f.read()

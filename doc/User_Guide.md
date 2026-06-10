@@ -69,6 +69,9 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
      (≥ 37 °C, method a) — operator fields required by the standard, written
      into the report and the CSV metadata. They are usually known only after
      the run: fill them in and press *Save report* (step 8).
+   - *Output folder* (with *Browse…*) — base folder for the outputs, preset
+     to `temp\`. Every run creates its own subfolder
+     `run_YYYYMMDD_HHMMSS_<label>` in it.
 3. **Enter the console operating settings** (*Transmit params* tab,
    201.11.1.3.102) — set the ultrasound system to the operating mode that
    produces the **highest surface temperature** and record it here. Every
@@ -115,18 +118,24 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    (default 30 min) or when the **probe** channel reaches thermal steady state
    (rate < 0.12 °C/min held for 3 min, 201.11.1.3.101), whichever comes first;
    *Stop test* ends it manually (the report then notes an incomplete test).
-   The CSV, the report (TXT + PDF) and the plot PNG are saved automatically.
+   The CSV, the report (TXT + PDF) and the plot PNG are saved automatically
+   into the run's own folder (see section 4).
 8. **Save report again (optional)** — after the run the *Save report* button
    becomes active. If information was missing or wrong during the run
    (operator name, DUT ID, transmit params, thermal offset, …), amend the
-   fields in the GUI and click *Save report*: the verdict is re-evaluated and
-   the report/PDF/plot are written again. Filenames keep the run's start
-   timestamp; changing the transmit params changes the test label, producing
-   new files alongside the old ones. The recorded CSV data is never modified.
+   fields in the GUI and click *Save report*: a folder-picker dialog
+   (starting at the default output folder) chooses where the files go, the
+   verdict is re-evaluated and the report/PDF/plot are written there.
+   Filenames keep the run's start timestamp; changing the transmit params
+   changes the test label, producing new files alongside the old ones. The
+   recorded CSV data is never modified.
 
-## 4. Output files (saved to `temp\`)
+## 4. Output files
 
-`<label>` below is the transmit-parameter test label, e.g. `B-PEN-D15-FOV90-FN1-1cm`.
+Each run creates its own folder `run_YYYYMMDD_HHMMSS_<label>` under the
+*Output folder* configured in the GUI (default `temp\`) and writes all its
+files there. `<label>` below is the transmit-parameter test label, e.g.
+`B-PEN-D15-FOV90-FN1-1cm`.
 
 | File | Content |
 |---|---|
@@ -243,6 +252,7 @@ steady-state detector and a full accelerated end-to-end run using the
 application's own simulated instrument (swapped channel roles, live monitor
 with pre-contact capture and no recording, CSV metadata, operating-settings
 block in the report, auto-stop on steady state, PDF report, re-save with
-amended fields). All checks pass as of 2026-06-09 (V1.3.6).
+amended fields, per-run output folder and re-save into a chosen folder).
+All checks pass as of 2026-06-10 (V1.3.7).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.

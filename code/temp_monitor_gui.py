@@ -1,40 +1,15 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.6
-# Modified: 2026-06-09
-# Notes   : v1.3.6 - C ROI selector (0-1 / 0-15 cm) for modes containing C,
-#           recorded in the test label (CROI0-1), CSV metadata and report
-#           (omitted for modes without C).
-#           v1.3.5 - Mode list corrected: standalone C removed (C exists
-#           only combined with B): B/B+C/B+CW/B+PW/B+C+PW/B+C+CW.
-#           v1.3.4 - Live monitor ("Monitor (no record)"): reads and
-#           displays both channels without recording, for the pre-contact
-#           >= 37 C and ambient 23 +/- 3 C checks; "-> DUT temp before
-#           contact" captures the probe reading into the Test-setup field.
-#           Each acquisition thread now owns its stop event. User Guide:
-#           measurement-uncertainty guidance (201.11.1.3.104).
-#           v1.3.3 - New Test-setup fields "Meas. uncertainty"
-#           (201.11.1.3.104) and "DUT temp before contact" replace the
-#           report's blank fill-in lines; values go into the report and
-#           CSV metadata.
-#           v1.3.2 - Plot legend: limit line shows the numeric limit value
-#           with the cited IEC clause on a second line.
-#           v1.3.1 - "Save report" button: enabled after a run ends; amend
-#           the UI fields and save again (verdict re-evaluated, files keep
-#           the run's start timestamp). Reports also written as PDF:
-#           page 1 report text, page 2 temperature plot (matplotlib
-#           PdfPages, no new dependency).
-#           v1.3.0 - Re-added a simulated-test demo: the instrument list now
-#           offers "Simulated DMM6500 (demo, no hardware)". The demo heats
-#           the selected probe channel along an exponential curve
-#           (37 C -> ~41.6 C, tau 300 s), keeps the ambient channel near
-#           23 C, and runs on a x60 accelerated clock so a 30-min test
-#           finishes in ~30 s, reaching thermal steady state and exercising
-#           the full acquisition/CSV/report/plot pipeline. The *IDN? string
-#           is 'SIMULATED,DMM6500-DEMO,...' so reports are unambiguous;
-#           connection status shows orange in demo mode. temp/selftest.py
-#           now drives this class directly.
+# Version : 1.3.7
+# Modified: 2026-06-10
+# Notes   : v1.3.7 - Per-run output folder: every test creates
+#           run_<stamp>_<label> under the configurable "Output folder"
+#           (new Test-setup field with Browse...) and writes CSV, report
+#           TXT/PDF and plot PNG into it. "Save report" now opens a
+#           folder-picker dialog (starting at the default output folder)
+#           to choose where the re-saved files go.
+#           (Older notes: see CHANGELOG.md; Notes holds only the latest.)
 # =============================================================================
 """ICE Transducer Temperature Monitor.
 
@@ -67,7 +42,7 @@ import time
 import tkinter as tk
 from collections import deque
 from datetime import datetime
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import matplotlib
 
@@ -80,7 +55,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.6"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.7"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -693,6 +668,21 @@ class App(tk.Tk):
             row=3, column=1, sticky="w", padx=4)
         ttk.Label(meta, text="C  (>= 37, method a)").grid(row=3, column=2,
                                                           sticky="w")
+        # Default base folder for the outputs; every run creates its own
+        # run_<stamp>_<label> subfolder in it.
+        ttk.Label(meta, text="Output folder").grid(row=4, column=0, sticky="w")
+        self.outdir_var = tk.StringVar(value=OUTPUT_DIR)
+        ttk.Entry(meta, textvariable=self.outdir_var, width=20).grid(
+            row=4, column=1, sticky="w", padx=4)
+        ttk.Button(meta, text="Browse...", command=self._browse_outdir).grid(
+            row=4, column=2, sticky="w")
+
+    def _browse_outdir(self):
+        d = filedialog.askdirectory(
+            title="Default output folder",
+            initialdir=self.outdir_var.get().strip() or OUTPUT_DIR)
+        if d:
+            self.outdir_var.set(os.path.normpath(d))
 
     def _build_transmit_panel(self, parent):
         ttk.Label(parent,
@@ -1102,10 +1092,20 @@ class App(tk.Tk):
         for c in CHANNELS:
             self.detectors[c].add(0.0, first[c])
 
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
         stamp = self.test_start_wall.strftime("%Y%m%d_%H%M%S")
         suffix = f"_{self.test_label}" if self.test_label else ""
-        self.csv_path = os.path.join(OUTPUT_DIR, f"templog_{stamp}{suffix}.csv")
+        # One folder per run (under the GUI's output folder) holds the CSV,
+        # the report TXT/PDF and the plot PNG.
+        base = self.outdir_var.get().strip() or OUTPUT_DIR
+        self.run_dir = os.path.join(base, f"run_{stamp}{suffix}")
+        try:
+            os.makedirs(self.run_dir, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror(
+                "Invalid output folder",
+                f"Cannot create the run folder:\n{self.run_dir}\n\n{exc}")
+            return
+        self.csv_path = os.path.join(self.run_dir, f"templog_{stamp}{suffix}.csv")
         self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
         self.csv_file.write(self._csv_metadata())
         self.csv_writer = csv.writer(self.csv_file)
@@ -1468,10 +1468,21 @@ class App(tk.Tk):
             f"PDF:    {paths['pdf']}\nPlot:   {paths['png']}")
 
     def save_report(self):
-        """Save the report again with the current UI fields (Save button)."""
+        """Save the report again with the current UI fields (Save button).
+
+        A folder-picker dialog (starting at the GUI's default output folder)
+        chooses where the report TXT/PDF and plot PNG are written.
+        """
         if self.running or not self.times or self.test_start_wall is None:
             return
-        verdict, paths = self._save_outputs()
+        target = filedialog.askdirectory(
+            title="Choose the folder for the report files",
+            initialdir=self.outdir_var.get().strip() or OUTPUT_DIR)
+        if not target:
+            self.status_label.configure(text="Save cancelled.",
+                                        foreground="gray")
+            return
+        verdict, paths = self._save_outputs(out_dir=os.path.normpath(target))
         self.status_label.configure(
             text=f"Report saved ({verdict}): {os.path.basename(paths['txt'])}",
             foreground="black")
@@ -1480,14 +1491,16 @@ class App(tk.Tk):
             f"Verdict: {verdict}\n\nReport: {paths['txt']}\n"
             f"PDF:    {paths['pdf']}\nPlot:   {paths['png']}")
 
-    def _save_outputs(self):
+    def _save_outputs(self, out_dir=None):
         """Write the plot PNG, text report and PDF report for the recorded run.
 
-        Metadata that does not affect the recorded data (operator, DUT ID,
-        transmit params, thermal offset, ambient) is re-read from the UI, so
-        the operator can amend it after the run and press "Save report" to
-        save again. Filenames keep the run's start timestamp; a changed test
-        label produces new files alongside the old ones.
+        Files go into `out_dir` (default: the run's own folder, created at
+        test start). Metadata that does not affect the recorded data
+        (operator, DUT ID, transmit params, thermal offset, ambient) is
+        re-read from the UI, so the operator can amend it after the run and
+        press "Save report" to save again. Filenames keep the run's start
+        timestamp; a changed test label produces new files alongside the
+        old ones.
         """
         self.tx_params = self._collect_tx_params()
         self.test_label = build_test_label(self.tx_params)
@@ -1515,13 +1528,16 @@ class App(tk.Tk):
 
         stamp = self.test_start_wall.strftime("%Y%m%d_%H%M%S")
         suffix = f"_{self.test_label}" if self.test_label else ""
-        png_path = os.path.join(OUTPUT_DIR, f"tempplot_{stamp}{suffix}.png")
+        if out_dir is None:
+            out_dir = getattr(self, "run_dir", None) or OUTPUT_DIR
+        os.makedirs(out_dir, exist_ok=True)
+        png_path = os.path.join(out_dir, f"tempplot_{stamp}{suffix}.png")
         try:
             self.fig.savefig(png_path, dpi=150, bbox_inches="tight")
         except Exception:
             png_path = "(plot save failed)"
-        txt_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.txt")
-        pdf_path = os.path.join(OUTPUT_DIR, f"report_{stamp}{suffix}.pdf")
+        txt_path = os.path.join(out_dir, f"report_{stamp}{suffix}.txt")
+        pdf_path = os.path.join(out_dir, f"report_{stamp}{suffix}.pdf")
         text = self._report_text(mode, (value, limit, ok), verdict,
                                  png_path, pdf_path)
         with open(txt_path, "w", encoding="utf-8") as f:

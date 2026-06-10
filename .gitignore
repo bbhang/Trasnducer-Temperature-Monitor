@@ -1,4 +1,5 @@
 # Generated test artifacts
+temp/run_*/
 temp/templog_*.csv
 temp/report_*.txt
 temp/report_*.pdf

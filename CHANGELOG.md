@@ -6,6 +6,21 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.7 — 2026-06-10
+
+- **Per-run output folder**: every test creates `run_YYYYMMDD_HHMMSS_<label>`
+  under the output folder and writes all its files there (CSV, report TXT,
+  report PDF, plot PNG) instead of loose files in `temp\`.
+- **Output folder field** (*Test setup* tab, with *Browse…*): the default
+  base folder for the run folders; preset to `temp\`.
+- **Save report folder dialog**: the *Save report* button now opens a
+  folder picker (starting at the default output folder) and writes the
+  re-saved report TXT/PDF and plot PNG into the chosen folder; cancelling
+  the dialog aborts the save.
+- `temp/selftest.py`: checks the run folder (location, name, CSV inside)
+  and a re-save into a different, newly created folder via a stubbed dialog.
+- `.gitignore`: ignore `temp/run_*/`.
+
 ## V1.3.6 — 2026-06-09
 
 - **C ROI selector** (modes containing C): 0–1 or 0–15 cm. Recorded in the
