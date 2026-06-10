@@ -1,0 +1,145 @@
+# ICE Transducer Temperature Monitor — User Guide
+
+GUI application for measuring ICE transducer self-heating with a Keithley DMM6500
+and judging compliance against IEC 60601-2-37:2024 clause 201.11
+(see `IEC_60601-2-37_Requirements_Summary.md` for the full requirement extraction).
+
+## 1. Hardware setup
+
+- **Instrument:** Keithley DMM6500 with the 2000-SCAN scanner card installed in the
+  **rear panel** card slot.
+- **Probes:** two type-T thermocouples (default; K/J selectable in the GUI):
+  - **T2** → scanner card **channel 2** — on the **transducer surface (DUT)**;
+    this is the channel evaluated against the IEC limits and used for
+    steady-state auto-stop.
+  - **T3** → scanner card **channel 3** — **ambient reference**; recorded to
+    document the 23 ± 3 °C test condition (and ≤ 0.5 °C stability for the
+    still-air test). It does not participate in the pass/fail verdict.
+- Set the front-panel **TERMINALS** switch to **REAR**.
+- **Connection:** USB cable from the DMM6500 rear USB-B port to the PC.
+  A VISA runtime must be installed (NI-VISA or Keysight IO Libraries; alternatively
+  `pip install pyvisa-py pyusb`).
+- Attach the thermocouple junctions to the transducer surface points expected to
+  reach the highest temperature, in good thermal contact, secured so that they have
+  negligible effect on the local temperature rise (201.11.1.3.104 — thin film or
+  fine wire recommended).
+
+## 2. Software setup
+
+```
+pip install -r code\requirements.txt
+python code\temp_monitor_gui.py
+```
+
+Python 3.10+ with tkinter (included in the standard Windows installer).
+
+## 3. Operating procedure
+
+1. **Connect** — click *Refresh*: the program queries `*IDN?` on every VISA
+   instrument (safe for scopes, signal generators, etc.) and **auto-selects the
+   DMM6500** from the list, which shows each instrument as `model | address`.
+   Click *Connect*; the `*IDN?` string appears in green. Connecting to anything
+   that is not a DMM6500 is refused (so a scope is never accidentally `*RST`).
+   (Or tick *Demo mode* to try the program without hardware; *Demo speed*
+   accelerates a 30 min test.)
+2. **Configure the test** (left panel):
+   - Test mode — choose per your test plan:
+     - *Simulated use a) Peak temperature* — tissue-mimicking phantom preheated to
+       ≥ 37 °C; limit: surface temperature ≤ **43 °C**.
+     - *Simulated use b) Temperature rise* — invasive limit: rise + thermal offset
+       ≤ **6 °C**.
+     - *Still air* — no coupling gel; limit: rise + thermal offset ≤ **27 °C**.
+   - *Thermal offset* — known stable offset at thermal steady state (201.3.228);
+     0.0 if none.
+   - *Ambient temperature* — record the room temperature; the standard requires
+     23 ± 3 °C and the GUI warns if the entered value is outside that range.
+   - *Sample interval* (default 1 s), *Max test duration* (default 30 min),
+     thermocouple type, operator and probe ID (stored in the report).
+3. **Prepare the DUT** — set the ultrasound system to the operating mode that
+   produces the **highest surface temperature** (201.11.1.3.102) and note the
+   transmit parameters for the report.
+4. **Start test** — press *Start test* **just before activating acoustic output**.
+   The first reading is stored as the per-channel **baseline** used for the
+   temperature-rise calculation.
+5. **Monitor** — live readouts show current/max/rise/rate per channel, a live plot
+   with the limit line, a steady-state indicator, and the live verdict:
+   - **IN PROGRESS** (gray) — no limit exceeded yet.
+   - **WARNING ≥ 41 C** (orange) — peak mode only (201.12.4.2 j).
+   - **FAIL** (red) — a limit was exceeded (latched for the rest of the run).
+   - If the ultrasound system auto-freezes, re-activate it immediately
+     (201.11.1.3.103).
+6. **End of test** — the run stops automatically after the configured duration
+   (default 30 min) or when **both** channels reach thermal steady state
+   (rate < 0.12 °C/min held for 3 min, 201.11.1.3.101), whichever comes first;
+   *Stop test* ends it manually (the report then notes an incomplete test).
+
+## 4. Output files (saved to `temp\`)
+
+| File | Content |
+|---|---|
+| `templog_YYYYMMDD_HHMMSS.csv` | timestamp, elapsed s, T2 °C, T3 °C — every sample |
+| `report_YYYYMMDD_HHMMSS.txt` | test conditions, baseline/max/rise per channel, steady-state times, PASS/FAIL verdict, operator fill-in fields |
+| `tempplot_YYYYMMDD_HHMMSS.png` | temperature curves with limit lines |
+
+After the run, complete the report's operator fields: transmit parameters
+(201.11.1.3.102), measurement uncertainty (201.11.1.3.104), and — for method a) —
+the test-object temperature before contact (≥ 37 °C for invasive use).
+
+## 5. Pass/fail logic
+
+Evaluated independently for T2 and T3; overall verdict is PASS only if **both**
+channels pass:
+
+| Mode | Evaluated value | Limit |
+|---|---|---|
+| Simulated use a) | maximum temperature | ≤ 43.0 °C |
+| Simulated use b) | (max − baseline) + thermal offset | ≤ 6.0 °C |
+| Still air | (max − baseline) + thermal offset | ≤ 27.0 °C |
+
+Note: the single-fault +5 °C allowance of 201.13.1.2 applies only to external-use
+(skin) transducers and is **not** applied here.
+
+## 6. Troubleshooting
+
+- **No VISA resources found** — install NI-VISA (or `pip install pyvisa-py pyusb`),
+  check the USB cable, and confirm the DMM6500 appears in Windows Device Manager.
+- **"Undefined header" (-113) SCPI errors** — every configuration command is now
+  checked against `:SYST:ERR?`; the connection error dialog names the exact
+  offending command. The DMM6500 does not accept legacy 2000-series headers
+  (e.g. `:UNIT:TEMP`); temperature units are set via `:SENS:TEMP:UNIT CELS, (@ch)`.
+- **Reference junction** — the 2000-SCAN card has no cold-junction sensor (the
+  instrument rejects `INTernal` with "channel does not support internal
+  reference"), so the program uses a **SIMulated reference junction** set to the
+  *Ambient temperature* entered in the GUI at test start. Keep the card
+  terminals at room temperature, away from drafts. Absolute readings carry the
+  cold-junction error; the temperature-rise test modes cancel it.
+- **Relay clicking during acquisition** — normal. The 2000-SCAN card uses
+  electromechanical relays and a single measurement path, so every sample the
+  card must switch channel 2 → channel 3 and back; each switch is one audible
+  click. At a 1 s interval a 30 min test produces ~3600 operations, negligible
+  against the relay rated life (>10^8 operations). To reduce clicking, increase
+  the sample interval (2–5 s is still far finer than the 0.12 °C/min
+  steady-state criterion requires).
+- **"thermocouple open or not connected" although probes are wired** — in order
+  of likelihood:
+  1. The front-panel **TERMINALS switch is on FRONT** — the scanner card is not
+     in the measurement path (relays still click, but every channel reads
+     overflow). The GUI now checks `:ROUT:TERM?` at connect and refuses with a
+     clear message; flip the switch to REAR.
+  2. The probes are wired to **different card channels** than 2/3 — run
+     `python temp\probe_check.py`: it scans all 10 channels in TC mode and
+     prints which ones return a valid temperature.
+  3. **Loose screw terminals** — the clamp may be biting the insulation instead
+     of bare wire; re-strip and re-tighten H and L of the channel.
+- **Noisy rate / steady state never reached** — increase the sample interval or
+  shield the thermocouples from airflow; the still-air test requires an environment
+  without air movement, ambient stable within 0.5 °C.
+- **Instrument busy after a crash** — power-cycle the DMM6500 or send `*RST` from
+  another VISA session.
+
+## 7. Verification status
+
+`temp\selftest.py` exercises the verdict formulas, the steady-state detector and a
+full accelerated demo-mode run (CSV/report/PNG generation, auto-stop on steady
+state). All checks pass as of 2026-06-09. Real-instrument validation (USB VISA
+address, channel configuration) is to be performed on the bench.

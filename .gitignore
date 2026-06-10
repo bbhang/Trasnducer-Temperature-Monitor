@@ -1,0 +1,11 @@
+# Generated test artifacts
+temp/templog_*.csv
+temp/report_*.txt
+temp/tempplot_*.png
+
+# Python
+__pycache__/
+*.pyc
+
+# Licensed standard documents (large PDFs, no-reproduction license)
+Standard/

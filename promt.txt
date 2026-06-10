@@ -1,0 +1,2 @@
+在这个文件夹里的任务是写一个GUI界面, 用 DMM6500 采集 后面的 温度探头的温度, 探头接在T2和 T3,你需要在这个目录下新建文件夹 ,一个用来放文档 doc, 一个放临时文件 temp, 一个放代码.                       
+  这个温度是用来测试探头工作时的升温. 你需要根据stadard里的& 'c:\Users\01777\Downloads\ICE\Trasnducer Temperature Monitor\Standard\IEC 60601-2-37_2024.pdf' 的要求来采集和判断温度是否符合要求.
