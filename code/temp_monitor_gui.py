@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # =============================================================================
 # Project : ICE Transducer Temperature Monitor
-# Version : 1.3.5
+# Version : 1.3.6
 # Modified: 2026-06-09
-# Notes   : v1.3.5 - Mode list corrected: standalone C removed (C exists
+# Notes   : v1.3.6 - C ROI selector (0-1 / 0-15 cm) for modes containing C,
+#           recorded in the test label (CROI0-1), CSV metadata and report
+#           (omitted for modes without C).
+#           v1.3.5 - Mode list corrected: standalone C removed (C exists
 #           only combined with B): B/B+C/B+CW/B+PW/B+C+PW/B+C+CW.
 #           v1.3.4 - Live monitor ("Monitor (no record)"): reads and
 #           displays both channels without recording, for the pre-contact
@@ -77,7 +80,7 @@ from matplotlib.figure import Figure
 # Configuration
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.3.5"             # bumped on every update (see CHANGELOG.md)
+APP_VERSION = "1.3.6"             # bumped on every update (see CHANGELOG.md)
 
 CHANNELS = (2, 3)                 # DMM6500 scanner-card channels (T2, T3)
 DEFAULT_AMBIENT_CH = 3            # default ambient-reference channel
@@ -136,6 +139,7 @@ C_OPTS = ("PEN", "GEN")
 B_FREQ_MHZ = {"PEN": "4.5", "GEN": "6.5", "GRES": "6.5", "RES": "8",
               "HPEN": "8", "HRES": "9"}
 C_FREQ_MHZ = {"PEN": "4.5", "GEN": "4.8"}
+C_ROI_PRESETS_CM = ("0-1", "0-15")    # C-mode region of interest
 DEPTH_MIN_CM = 3.0
 DEPTH_MAX_CM = 15.0
 FOV_PRESETS_DEG = ("90", "100", "115", "120")
@@ -253,6 +257,8 @@ def build_test_label(params):
         parts.append(params["mode"])
     if params.get("opt"):
         parts.append(params["opt"].replace("(", "").replace(")", ""))
+    if params.get("c_roi"):
+        parts.append(f"CROI{params['c_roi']}")
     if params.get("depth"):
         parts.append(f"D{params['depth']}")
     if params.get("fov"):
@@ -737,30 +743,32 @@ class App(tk.Tk):
                   command=self._on_console_mode_change)
         combo_row(2, "B Opt (image preset)", "b_opt", B_OPTS, default="PEN")
         combo_row(3, "C Opt", "c_opt", C_OPTS, default="PEN")
+        combo_row(4, "C ROI (cm)", "c_roi", C_ROI_PRESETS_CM, default="0-1",
+                  width=8)
 
         lab = ttk.Label(grid, text="Image depth (cm)")
-        lab.grid(row=4, column=0, sticky="w", pady=1)
+        lab.grid(row=5, column=0, sticky="w", pady=1)
         self.tx_vars["depth"] = tk.StringVar(value="15")
         depth_spin = ttk.Spinbox(grid, textvariable=self.tx_vars["depth"],
                                  from_=DEPTH_MIN_CM, to=DEPTH_MAX_CM,
                                  increment=1, width=7)
-        depth_spin.grid(row=4, column=1, sticky="w", padx=4, pady=1)
+        depth_spin.grid(row=5, column=1, sticky="w", padx=4, pady=1)
         ttk.Label(grid, text=f"({DEPTH_MIN_CM:g}-{DEPTH_MAX_CM:g})").grid(
-            row=4, column=2, sticky="w")
+            row=5, column=2, sticky="w")
         self._tx_rows["depth"] = [lab, depth_spin]
 
-        combo_row(5, "FOV (deg)", "fov", FOV_PRESETS_DEG, default="90",
+        combo_row(6, "FOV (deg)", "fov", FOV_PRESETS_DEG, default="90",
                   width=8)
-        combo_row(6, "Focus number", "focus_num",
+        combo_row(7, "Focus number", "focus_num",
                   tuple(str(n) for n in range(1, MAX_FOCUS_NUM + 1)),
                   default="1", width=8, command=self._on_focus_num_change)
 
         # One position entry per focus; entries beyond the selected focus
         # number are hidden.
         lab = ttk.Label(grid, text="Focus pos. (cm)")
-        lab.grid(row=7, column=0, sticky="w", pady=1)
+        lab.grid(row=8, column=0, sticky="w", pady=1)
         focus_frm = ttk.Frame(grid)
-        focus_frm.grid(row=7, column=1, columnspan=2, sticky="w", padx=4)
+        focus_frm.grid(row=8, column=1, columnspan=2, sticky="w", padx=4)
         self._focus_entries = []
         for i in range(MAX_FOCUS_NUM):
             var = tk.StringVar(value=str(i + 1))
@@ -769,14 +777,14 @@ class App(tk.Tk):
             self._focus_entries.append((ent, var))
             var.trace_add("write", lambda *_: self._update_label_preview())
 
-        entry_row(8, "Line density", "line_density", default="UH", width=8)
-        entry_row(9, "F (MHz)", "f_mhz", width=8, unit="(fixed per Opt)",
+        entry_row(9, "Line density", "line_density", default="UH", width=8)
+        entry_row(10, "F (MHz)", "f_mhz", width=8, unit="(fixed per Opt)",
                   readonly=True)
-        entry_row(10, "Pulses #", "pulses", width=8, unit="(fixed per mode)",
+        entry_row(11, "Pulses #", "pulses", width=8, unit="(fixed per mode)",
                   readonly=True)
-        entry_row(11, "Frame rate (Hz)", "frame_rate", width=8,
+        entry_row(12, "Frame rate (Hz)", "frame_rate", width=8,
                   unit="(auto if tabulated)")
-        entry_row(12, "PRF (Hz)", "prf", width=8, unit="(auto if tabulated)")
+        entry_row(13, "PRF (Hz)", "prf", width=8, unit="(auto if tabulated)")
 
         self.tx_label_preview = ttk.Label(parent, text="", foreground="gray")
         self.tx_label_preview.pack(anchor="w", pady=(6, 0))
@@ -799,6 +807,7 @@ class App(tk.Tk):
         toks = mode_tokens(self.tx_vars["mode"].get())
         self._set_tx_row_visible("b_opt", "B" in toks)
         self._set_tx_row_visible("c_opt", "C" in toks)
+        self._set_tx_row_visible("c_roi", "C" in toks)
         self._update_tx_auto()
 
     def _on_focus_num_change(self, _event=None):
@@ -837,6 +846,8 @@ class App(tk.Tk):
         else:
             opt = ""
         params["opt"] = opt
+        if not has_c:
+            params["c_roi"] = ""
         try:
             n = int(params["focus_num"])
         except ValueError:
@@ -1150,6 +1161,7 @@ class App(tk.Tk):
             ("console_sw", tx.get("console_sw", "")),
             ("console_mode", tx.get("mode", "")),
             ("opt", tx.get("opt", "")),
+            ("c_roi_cm", tx.get("c_roi", "")),
             ("image_depth_cm", tx.get("depth", "")),
             ("fov_deg", tx.get("fov", "")),
             ("focus_number", tx.get("focus_num", "")),
@@ -1586,6 +1598,8 @@ class App(tk.Tk):
             tx_line("Console SW version", "console_sw"),
             tx_line("Mode", "mode"),
             tx_line("Opt (image preset)", "opt"),
+            # C ROI only exists in modes containing C; omit it elsewhere.
+            *([tx_line("C ROI", "c_roi", " cm")] if tx.get("c_roi") else []),
             tx_line("Image depth", "depth", " cm"),
             tx_line("FOV", "fov", " deg"),
             tx_line("Focus number", "focus_num"),

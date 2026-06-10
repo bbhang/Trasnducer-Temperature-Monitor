@@ -2,7 +2,7 @@
 
 Drives the application's own SimulatedDmm demo instrument (x60 accelerated
 clock) to exercise the full acquisition, steady-state, verdict and report
-pipeline (TXT + PDF + re-save, V1.3.1) without hardware.
+pipeline (TXT + PDF + re-save + live monitor, V1.3.1-V1.3.6) without hardware.
 """
 import math
 import os
@@ -44,6 +44,10 @@ label = m.build_test_label({"mode": "B+C", "opt": "PEN(C)+GEN(B)",
                             "depth": "15", "fov": "90", "focus_num": "1",
                             "focus_area": "0-1cm"})
 check("label sanitizes parentheses", "(" not in label and ")" not in label)
+label = m.build_test_label({"mode": "B+C", "opt": "PEN(C)+GEN(B)",
+                            "c_roi": "0-1", "depth": "15", "fov": "90",
+                            "focus_num": "1", "focus_area": "1cm"})
+check("label carries C ROI", "CROI0-1" in label)
 check("label empty when no params", m.build_test_label({}) == "")
 
 # ---- auto_tx_params (console SW V1.0.0.105919 table) -----------------------
@@ -185,6 +189,7 @@ if csv_ok:
         csv_text = f.read()
     check("CSV has # metadata", csv_text.startswith("# program:"))
     check("CSV metadata has console mode", "# console_mode: B" in csv_text)
+    check("CSV metadata: C ROI blank in B mode", "# c_roi_cm: \n" in csv_text)
     check("CSV header swapped roles",
           "T3_probe_C (ch3)" in csv_text and "T2_ambient_C (ch2)" in csv_text)
 

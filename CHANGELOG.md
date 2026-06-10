@@ -6,6 +6,14 @@ Version is bumped on every update; the same version is set in
 test report, carried in the file's header comment block (`Notes` field holds
 the latest update description), and tagged in git (`vX.Y.Z`).
 
+## V1.3.6 — 2026-06-09
+
+- **C ROI selector** (modes containing C): 0–1 or 0–15 cm. Recorded in the
+  test label (`CROI0-1`), the CSV `#` metadata (`c_roi_cm`) and the report's
+  operating-settings block (omitted for modes without C).
+- `temp/selftest.py`: checks for the C ROI label part and the blank
+  `c_roi_cm` metadata in B mode.
+
 ## V1.3.5 — 2026-06-09
 
 - **Mode list corrected**: standalone C removed — the console offers C only

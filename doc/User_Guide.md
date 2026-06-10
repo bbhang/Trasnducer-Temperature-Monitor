@@ -76,8 +76,9 @@ Python 3.10+ with tkinter (included in the standard Windows installer).
    - *Mode*: B, B+C, B+CW, B+PW, B+C+PW, B+C+CW (console SW V1.0.0.105919;
      C exists only combined with B, not standalone). Modes containing B show
      a *B Opt* selector (PEN, GEN, GRES, RES, HPEN, HRES); modes containing
-     C also show a *C Opt* selector (PEN, GEN). A B+C run is recorded as
-     e.g. `PEN(C)+GEN(B)`.
+     C also show a *C Opt* selector (PEN, GEN) and a *C ROI* selector
+     (0–1 or 0–15 cm). A B+C run is recorded as e.g. `PEN(C)+GEN(B)` with
+     the ROI in the test label (`CROI0-1`), the CSV metadata and the report.
    - *F (MHz)* and *Pulses #* are fixed and fill automatically: frequency
      follows the Opt (B: PEN 4.5 / GEN 6.5 / GRES 6.5 / RES 8 / HPEN 8 /
      HRES 9 MHz; C: PEN 4.5 / GEN 4.8 MHz); pulses are 2 for non-harmonic B,
@@ -242,6 +243,6 @@ steady-state detector and a full accelerated end-to-end run using the
 application's own simulated instrument (swapped channel roles, live monitor
 with pre-contact capture and no recording, CSV metadata, operating-settings
 block in the report, auto-stop on steady state, PDF report, re-save with
-amended fields). All checks pass as of 2026-06-09 (V1.3.5).
+amended fields). All checks pass as of 2026-06-09 (V1.3.6).
 Real-instrument validation (USB VISA address, channel configuration) is to be
 performed on the bench.
